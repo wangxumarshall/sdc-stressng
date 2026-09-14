@@ -118,7 +118,25 @@
 - [x] `README.md`：构建章节补 aarch64 SVE2 自动探测说明（-O3 必要性、MARCH_AARCH64_SVE2=0/1 跨编译控制、sve2/ls64 stressor 提示）
 - [x] 验证：`man ./stress-ng.1` 渲染 sve2/ls64 条目正常（实测输出确认）；`--zombie 1`、`--cpu-method crc32` 回归 passed
 
-## 全部完成 ✅ 9/9 patches pushed to port/kunpeng950-sdc-stress
+### Patch 10: scripts/sdc-run.sh 统一入口（三模式） — DONE
+- [x] 新增 `scripts/sdc-run.sh`（可执行）：
+  - **阶段 0 CPU 拓扑探测**（先读后定参）：online/isolated/offline 列表、SMT sibling 映射（N_LOGICAL vs N_PHYSICAL）、sve2/ls64/crc32 硬件 feature（/proc/cpuinfo 单次读取）
+  - **full 模式**（阶段1 触发）：worker 数 = N_PHYSICAL（`--cpu N --taskset physical --fma N` = 每物理核 2 worker 占满 SMT 兄弟）+ varyload 64/20ms di/dt 阶跃 + -K/interrupts/thermalstat 30 观测 + 可选 SDCShield 前台协同
+  - **scan 模式**（阶段2 定位）：委托 sdc-scan.sh；`--keep-bg N` 在非扫描核保留背景压（单核隔离不触发的 CORE179 教训）；`-c` 限定扫描范围（如只扫 CP1 的 192-381）
+  - **path 模式**（阶段3 归因）：worker 数 = N_LOGICAL/4；按 feature 门控拼装 --sve2/--ls64/--cpu-method crc32（无硬件的通路明确打印 skipped，不假跑）；`-c` 可绑嫌疑核
+  - **all 模式**：full → scan（自动 keep-bg=半数物理核）→ path 顺序执行 + 漏斗汇总
+- [x] CPU 感知参数推导设计：同一条命令在 920（128C/无SMT）与 950（382L/191P/SMT2）上都正确——worker 数、taskset、feature 门控全部从拓扑推导
+- [x] 验证实测（本机 920）：
+  - `path -t 8`：topology 输出正确（128/128/SMT no/sve2=0/ls64=0/crc32=1），crc32 32 workers（128/4），rc=0
+  - `full -t 8`：128+128+64 varyload workers，yaml/interrupts-before/after/topology 齐全，failed: 0，rc=0
+  - `scan -t 3 -c 0-3 --keep-bg 8`：4 核 sweep + 背景压 pid/log + 0 suspects，rc=0
+  - `-h` 用法输出正常
+- [x] 修复的 bug（诚实记录）：
+  1. bg-load 后台压重定向到未创建目录 → `> $out/bg-load.log` 静默失败（目录只由 sdc-scan.sh 创建）→ run_scan 提前 `mkdir -p "$out"`
+  2. `local rc=$?` 放在 kill/wait 之后被污染 + run_full 无 rc 声明（赋了全局变量）→ 重排捕获时序 + `local rc=0` 声明
+  3. bg-load 的 `-t $((...))` 缺 s 后缀（数字参数被当作秒数没问题，但补上明确单位）
+
+## 全部完成 ✅ 10/10 patches pushed to port/kunpeng950-sdc-stress
 
 | Patch | commit | 内容 | 本机验证 | 目标机待验证 |
 |---|---|---|---|---|
@@ -130,7 +148,8 @@
 | 6 | 774d5b81d | stress-sve2.c | 编译级（真实 fmla/bext z 指令）+ 诚实跳过 | `--sve2 N` 应 passed |
 | 7 | ae954f194 | stress-ls64.c | 编译级（ld64b/st64b 指令）+ 诚实跳过 | `--ls64 N` 应 passed |
 | 8 | 39408bda9 | cpu-method crc32 | **全功能验证**（hw 指令 + 双路径比对 passed） | — |
-| 9 | (this) | README/man 文档 | man 渲染确认 | — |
+| 9 | 18ab99fd4 | README/man 文档 | man 渲染确认 | — |
+| 10 | (this) | scripts/sdc-run.sh 三模式统一入口 | 3 模式全实测（拓扑探测/worker 推导/feature 门控/rc 传播） | 950 上 all 模式全流程 |
 
 ## 执行纪律
 - 每单元：plan 勾选 → 编码 → 自验证（引用真实输出）→ commit → push 到 `port/kunpeng950-sdc-stress`
