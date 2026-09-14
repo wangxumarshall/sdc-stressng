@@ -182,6 +182,7 @@
 	MACRO(logmath)		\
 	MACRO(longjmp)		\
 	MACRO(loop)		\
+	MACRO(ls64)		\
 	MACRO(lsearch)		\
 	MACRO(lsm)		\
 	MACRO(madvise)		\
@@ -352,6 +353,7 @@
 	MACRO(stream)		\
 	MACRO(strnum)		\
 	MACRO(swap)		\
+	MACRO(sve2)		\
 	MACRO(switch)		\
 	MACRO(symlink)		\
 	MACRO(sync_file)	\

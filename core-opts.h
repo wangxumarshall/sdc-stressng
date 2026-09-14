@@ -869,6 +869,9 @@ typedef enum {
 	OPT_loop_bytes,
 	OPT_loop_ops,
 
+	OPT_ls64,
+	OPT_ls64_ops,
+
 	OPT_lsearch,
 	OPT_lsearch_method,
 	OPT_lsearch_ops,
@@ -1621,6 +1624,9 @@ typedef enum {
 	OPT_swap,
 	OPT_swap_ops,
 	OPT_swap_self,
+
+	OPT_sve2,
+	OPT_sve2_ops,
 
 	OPT_switch_freq,
 	OPT_switch_method,
