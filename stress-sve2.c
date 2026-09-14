@@ -189,10 +189,7 @@ static int stress_sve2(stress_args_t *args)
 
 	data = (stress_sve2_data_t *)stress_mmap_populate(NULL, sz,
 		PROT_READ | PROT_WRITE,
-#if defined(HAVE_MAP_ANONYMOUS)
-		MAP_ANONYMOUS |
-#endif
-		MAP_PRIVATE, -1, 0);
+		MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 	if (data == MAP_FAILED) {
 		pr_inf_skip("%s: cannot mmap %zu bytes, skipping\n",
 			args->name, sz);

@@ -113,12 +113,41 @@
   2. **多项式用错**：`__crc32c*` 是 Castagnoli CRC-32C（0x1EDC6F41/反射 0x82f63b78），初版软件参考用了 Ethernet CRC-32（0xEDB88320）→ 四种模式全 mismatch（`hardware crc32 0x1f0b5b06 does not match software crc32 0xcbaacf84`）；修正后全一致
 - [x] x86 无回归论证：`HAVE_CRC32_ACLE` 只在 aarch64 上被定义（probe `#if defined(__aarch64__)` 守卫），x86 上无 crc32 方法表项以外改动；`sw_crc32` 无害（纯 C）
 
+### Patch 11: 修复 sve2/ls64 stressor 的 EBADF mmap bug — DONE
+- [x] **bug**：stress-sve2.c:192 与 stress-ls64.c:149 用 `#if defined(HAVE_MAP_ANONYMOUS)` 守卫 `MAP_ANONYMOUS` 标志，但该宏在整个构建系统（Makefile.config / config.h / test/）中**从未被定义** → 守卫恒假 → mmap 传 `fd=-1` 却不带 `MAP_ANONYMOUS` → **EBADF (errno=9)**。真机上 `--sve2`/`--ls64` 会在 stress_mmap_populate 处直接失败，返回 EXIT_NO_RESOURCE，压力测试根本没跑
+- [x] **最小复现**：独立程序 `mmap(NULL, 4096, RW, MAP_PRIVATE, -1, 0)` → `MAP_FAILED (errno=9 Bad file descriptor)` 实测确认
+- [x] **修复**：去掉不存在的宏守卫，直接 `MAP_ANONYMOUS | MAP_PRIVATE, -1, 0`——与上游惯例一致（core-mmap.c:279、stress-mmap.c:516/528/543/819、stress-vm.c 全部裸用；stress-mmap.c:146 的 `#if defined(MAP_ANONYMOUS)` 只是标志枚举列表条目，不是调用点）
+- [x] 验证实测：
+  - 端到端：修复前形态 EBADF / 修复后形态 mmap 成功 + 写入测试通过（独立程序对照实测）
+  - SVE2 编译路径：`gcc -march=armv8.6-a+sve2+sve2-bitperm -c` 仍有 2 处 bext/fmla z 指令；ls64 编译路径仍有 ld64b/st64b
+  - 本机行为不变：`--sve2 1`/`--ls64 1` 仍然诚实跳过（无硬件）
+  - 回归：zombie/crc32/fma/vecfp/matrix 全部 passed；构建 0 warning 0 error
+- [x] **教训（为什么当初会写错）**：新 stressor 抄写 mmap 调用时臆造了一个"规范守卫宏"，没有先 grep 上游如何使用——上游对 MAP_ANONYMOUS 从不守卫（POSIX.1-2008 标志，所有支持平台都定义）。写新代码前先查既有惯例
+
 ### Patch 9: README.md / 文档同步 — DONE
 - [x] `stress-ng.1`：新增 SVE2 vector stressor（Symlink 前插入）与 64 byte atomic load/store stressor（lsearch 前插入）完整条目（--sve2/--sve2-ops/--ls64/--ls64-ops + SDC 检测语义说明）；crc32/physical 已在 Patch 2/8 就地更新
 - [x] `README.md`：构建章节补 aarch64 SVE2 自动探测说明（-O3 必要性、MARCH_AARCH64_SVE2=0/1 跨编译控制、sve2/ls64 stressor 提示）
 - [x] 验证：`man ./stress-ng.1` 渲染 sve2/ls64 条目正常（实测输出确认）；`--zombie 1`、`--cpu-method crc32` 回归 passed
 
-## 全部完成 ✅ 9/9 patches pushed to port/kunpeng950-sdc-stress
+### Patch 10: scripts/sdc-run.sh 统一入口（三模式） — DONE
+- [x] 新增 `scripts/sdc-run.sh`（可执行）：
+  - **阶段 0 CPU 拓扑探测**（先读后定参）：online/isolated/offline 列表、SMT sibling 映射（N_LOGICAL vs N_PHYSICAL）、sve2/ls64/crc32 硬件 feature（/proc/cpuinfo 单次读取）
+  - **full 模式**（阶段1 触发）：worker 数 = N_PHYSICAL（`--cpu N --taskset physical --fma N` = 每物理核 2 worker 占满 SMT 兄弟）+ varyload 64/20ms di/dt 阶跃 + -K/interrupts/thermalstat 30 观测 + 可选 SDCShield 前台协同
+  - **scan 模式**（阶段2 定位）：委托 sdc-scan.sh；`--keep-bg N` 在非扫描核保留背景压（单核隔离不触发的 CORE179 教训）；`-c` 限定扫描范围（如只扫 CP1 的 192-381）
+  - **path 模式**（阶段3 归因）：worker 数 = N_LOGICAL/4；按 feature 门控拼装 --sve2/--ls64/--cpu-method crc32（无硬件的通路明确打印 skipped，不假跑）；`-c` 可绑嫌疑核
+  - **all 模式**：full → scan（自动 keep-bg=半数物理核）→ path 顺序执行 + 漏斗汇总
+- [x] CPU 感知参数推导设计：同一条命令在 920（128C/无SMT）与 950（382L/191P/SMT2）上都正确——worker 数、taskset、feature 门控全部从拓扑推导
+- [x] 验证实测（本机 920）：
+  - `path -t 8`：topology 输出正确（128/128/SMT no/sve2=0/ls64=0/crc32=1），crc32 32 workers（128/4），rc=0
+  - `full -t 8`：128+128+64 varyload workers，yaml/interrupts-before/after/topology 齐全，failed: 0，rc=0
+  - `scan -t 3 -c 0-3 --keep-bg 8`：4 核 sweep + 背景压 pid/log + 0 suspects，rc=0
+  - `-h` 用法输出正常
+- [x] 修复的 bug（诚实记录）：
+  1. bg-load 后台压重定向到未创建目录 → `> $out/bg-load.log` 静默失败（目录只由 sdc-scan.sh 创建）→ run_scan 提前 `mkdir -p "$out"`
+  2. `local rc=$?` 放在 kill/wait 之后被污染 + run_full 无 rc 声明（赋了全局变量）→ 重排捕获时序 + `local rc=0` 声明
+  3. bg-load 的 `-t $((...))` 缺 s 后缀（数字参数被当作秒数没问题，但补上明确单位）
+
+## 全部完成 ✅ 11/11 patches pushed to port/kunpeng950-sdc-stress
 
 | Patch | commit | 内容 | 本机验证 | 目标机待验证 |
 |---|---|---|---|---|
@@ -130,7 +159,9 @@
 | 6 | 774d5b81d | stress-sve2.c | 编译级（真实 fmla/bext z 指令）+ 诚实跳过 | `--sve2 N` 应 passed |
 | 7 | ae954f194 | stress-ls64.c | 编译级（ld64b/st64b 指令）+ 诚实跳过 | `--ls64 N` 应 passed |
 | 8 | 39408bda9 | cpu-method crc32 | **全功能验证**（hw 指令 + 双路径比对 passed） | — |
-| 9 | (this) | README/man 文档 | man 渲染确认 | — |
+| 9 | 18ab99fd4 | README/man 文档 | man 渲染确认 | — |
+| 10 | 5276c5ab5 | scripts/sdc-run.sh 三模式统一入口 | 3 模式全实测（拓扑探测/worker 推导/feature 门控/rc 传播） | 950 上 all 模式全流程 |
+| 11 | 52b1fae60 | sve2/ls64 EBADF mmap 修复（HAVE_MAP_ANONYMOUS 幻影宏） | EBADF 复现+修复对照+SVE2/ls64 编译路径+回归全过 | — |
 
 ## 执行纪律
 - 每单元：plan 勾选 → 编码 → 自验证（引用真实输出）→ commit → push 到 `port/kunpeng950-sdc-stress`
