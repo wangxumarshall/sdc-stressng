@@ -161,7 +161,7 @@
 | 8 | 39408bda9 | cpu-method crc32 | **全功能验证**（hw 指令 + 双路径比对 passed） | — |
 | 9 | 18ab99fd4 | README/man 文档 | man 渲染确认 | — |
 | 10 | 5276c5ab5 | scripts/sdc-run.sh 三模式统一入口 | 3 模式全实测（拓扑探测/worker 推导/feature 门控/rc 传播） | 950 上 all 模式全流程 |
-| 11 | (this) | sve2/ls64 EBADF mmap 修复（HAVE_MAP_ANONYMOUS 幻影宏） | EBADF 复现+修复对照+SVE2/ls64 编译路径+回归全过 | — |
+| 11 | 52b1fae60 | sve2/ls64 EBADF mmap 修复（HAVE_MAP_ANONYMOUS 幻影宏） | EBADF 复现+修复对照+SVE2/ls64 编译路径+回归全过 | — |
 
 ## 执行纪律
 - 每单元：plan 勾选 → 编码 → 自验证（引用真实输出）→ commit → push 到 `port/kunpeng950-sdc-stress`
