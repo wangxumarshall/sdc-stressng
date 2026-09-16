@@ -664,6 +664,8 @@ retry:
 		if (UNLIKELY(stress_net_sockaddr_set(args->name, args->instance,
 						     mypid, AF_INET, sockabuse_port,
 						     &addr, &addr_len, NET_ADDR_ANY) < 0)) {
+			(void)shutdown(fd, SHUT_RDWR);
+			(void)close(fd);
 			return EXIT_FAILURE;
 		}
 		if (UNLIKELY(connect(fd, (struct sockaddr *)&addr, addr_len) < 0)) {
@@ -910,6 +912,8 @@ static const stress_opt_t opts[] = {
 };
 
 static const stress_exercises_t exercises[] = {
+	STRESS_EX_FEATURE("coverage"),
+
 	STRESS_EX_SYSCALL("accept"),
 	STRESS_EX_SYSCALL("bind"),
 	STRESS_EX_SYSCALL("close"),
