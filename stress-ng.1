@@ -936,13 +936,18 @@ process scheduling that uses process names to make system tuning changes.
 .TP
 .B \-\-rapl
 Report the Running Average Power Limit (RAPL) energy measurements of
-stressor instances. Currently Linux and x86 only, requires root access
-rights to read RAPL kernel interfaces. Note that the RAPL domains supported
-may vary between devices.
+stressor instances. On x86 Linux this reads the Intel RAPL powercap
+interface; on aarch64 Linux this reads instantaneous power from hwmon
+powerN_input sensors where the platform exposes them. Requires root
+access rights to read some kernel interfaces. Note that the power
+domains supported may vary between devices.
 .TP
 .B \-\-raplstat S
-every S seconds show RAPL energy measurements. Currently Linux and x86 only,
-requires root access rights to read RAPL kernel interfaces.
+every S seconds show RAPL energy measurements. On x86 Linux this reads the
+Intel RAPL powercap interface; on aarch64 Linux this reads instantaneous
+power from hwmon powerN_input sensors where the platform exposes them
+(BMC/SoC/DDR rail sensors). Machines with no readable power sensors report
+that power measurement is unavailable.
 .TP
 .B \-\-resctrl p1[,p2,..,pn],s1[,s2..,sm]
 specify resource control cache partitions and apply to stressor instances (ARM MPAM only)

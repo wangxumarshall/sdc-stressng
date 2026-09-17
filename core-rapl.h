@@ -22,7 +22,8 @@
 #include "core-arch.h"
 
 #if defined(__linux__) &&	\
-    defined(STRESS_ARCH_X86)
+    (defined(STRESS_ARCH_X86) ||	\
+     defined(STRESS_ARCH_ARM))
 
 #define STRESS_RAPL
 #define STRESS_RAPL_DOMAINS_MAX		(32)
