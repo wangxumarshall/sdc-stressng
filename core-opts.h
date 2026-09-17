@@ -195,6 +195,10 @@ typedef enum {
 	OPT_apparmor,
 	OPT_apparmor_ops,
 
+	OPT_armcrypto,
+	OPT_armcrypto_method,
+	OPT_armcrypto_ops,
+
 	OPT_atomic,
 	OPT_atomic_ops,
 

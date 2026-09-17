@@ -1390,6 +1390,32 @@ on Linux systems with AppArmor support and requires the CAP_MAC_ADMIN capability
 stop the AppArmor workers after N bogo operations.
 .RE
 .TP
+.B ARM crypto stressor
+.RS 5
+.TQ
+.B \-\-armcrypto N
+start N workers exercising the aarch64 cryptographic extension units. The
+available methods depend on the CPU feature bits reported by the kernel:
+the NEON crypto instructions (aes, sha1, sha256, sha512, sha3, pmull, sm3,
+sm4), and the SVE2 crypto instructions (sve2\-aes, sve2\-pmull, sve2\-sha3,
+sve2\-sm4). Each method interleaves multiple independent state lanes with
+back\-to\-back round function operations to saturate the crypto pipelines.
+Methods that have a compact software reference (aes, pmull) verify the
+hardware results against the reference over identical inputs, providing a
+known\-answer style silent data corruption cross\-check. Methods whose
+hardware is not present are honestly skipped. Only available on aarch64
+systems built with a toolchain providing the NEON crypto intrinsics.
+.TP
+.B \-\-armcrypto\-method M
+specify a specific armcrypto method, one of all, aes, sha1, sha256, sha512,
+sha3, sm3, sm4, sm4key, pmull, sve2\-aes, sve2\-pmull, sve2\-sha3 or
+sve2\-sm4. Methods requiring features not reported by the CPU will be
+skipped with an explanation.
+.TP
+.B \-\-armcrypto\-ops N
+stop after N armcrypto bogo operations.
+.RE
+.TP
 .B Atomic stressor
 .RS 5
 .TQ

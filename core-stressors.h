@@ -34,6 +34,7 @@
 	MACRO(aiol) 		\
 	MACRO(alarm)		\
 	MACRO(apparmor) 	\
+	MACRO(armcrypto)	\
 	MACRO(atomic)		\
 	MACRO(bad_altstack) 	\
 	MACRO(bad_ioctl) 	\
