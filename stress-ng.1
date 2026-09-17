@@ -3885,7 +3885,10 @@ start N workers that exercise single and double precision floating point
 multiplication and add operations on arrays of 512 floating point values.
 For more modern processors (Intel Haswell, AMD Bulldozer and Piledriver) and
 modern C compilers these operations will be performed by fused-multiply-add (fma3)
-opcodes. Operations used are:
+opcodes. On aarch64 with SVE hardware the kernels run SVE2 predicated
+FMLA/FMSB/FNMSB vector code (selected at run time via the HWCAP_SVE feature
+check, the FMV-equivalent dispatch since GCC 12 has no aarch64 target_clones);
+on non-SVE aarch64 the auto-vectorised NEON path runs. Operations used are:
 .sp
 .TS
 expand;
