@@ -1,5 +1,47 @@
 # Findings: stress-ng × SDCShield 协同 SDC 压测（v3，2026-09-16 第六轮更新）
 
+## 9. 第八轮工程事实（2026-09-17，GitHub Actions 多 OS 验证工作流；全部本机实测）
+
+### 9.1 stress-ng 测试基建实测（构建 rc=0，gcc 12.3.1，openEuler 24.03 SP3 aarch64）
+| 事实 | 证据 |
+|---|---|
+| `--sequential N` 逐个跑全部 stressor，默认 60s/个，`--timeout` 覆盖 | stress-ng.1:1041-1046；实测进行中 |
+| `--sequential`/`--all`/`--random`/`--permute` 互斥，`--class` 只能与后三者联用 | stress-ng.c:4684-4696 |
+| `-x/--exclude` 是**逗号分隔纯名列表**（非正则）；名字必须已存在，否则报错退出 | stress-ng.c:594-607（shim_strtok_r 按 "," 切分 + stress_stressor_find 校验） |
+| 病理 stressor 默认禁用并提示 `--pathological` | bad-ioctl/mlockmany/oom-pipe/sysinval/watchdog（实测日志） |
+| 退出码：fail→EXIT_NOT_SUCCESS、无资源→EXIT_NO_RESOURCE、metrics 不可信→独立码；全过→EXIT_SUCCESS | stress-ng.c:5042-5050 |
+| yaml 字段（-Y）：`metrics:` 下逐 stressor `bogo-ops`/`bogo-ops-per-second-real-time`/`wall-clock-time`；还有 `build-info:`/`system-info:` 头 | /tmp/probe.yaml 实测 |
+| `<name>-method all` 关键字普遍支持（62 个 `*-method` 选项） | core-opts.c grep + stress-cpu.c:3114 `{ "all", stress_cpu_all }` |
+| `--skip-silent` 静音"诚实跳过"消息 | core-opts.c 存在 |
+| Makefile SANITIZE=1 = UBSAN 全家桶（cc_supports_flag 自动过滤老 gcc 不支持项） | Makefile:155-176 |
+| `all: build_info config.h stress-ng`；`make` 自动先跑 Makefile.config 生成 config.h | Makefile:920,990 |
+
+### 9.2 网络/CI 环境实测
+| 事实 | 含义 |
+|---|---|
+| 开发机 curl hub.docker.com SSL rc=35；auth.docker.io 也失败 | Docker Hub tag 存在性无法在开发机预验 → 工作流内加 fail-fast `manifest inspect` 预检 job |
+| ghcr.io 可达但匿名 token 对 openeuler/openeuler DENIED（该 org 镜像不在 ghcr） | openEuler 基础镜像只能从 Docker Hub 拉；用户自有镜像在 ghcr.io/wangxumarshall/* |
+| gh 未登录 | 推送用 git ssh；首跑验证需用户在 GitHub 网页触发或本地 gh auth login |
+| 本机 = aarch64 openEuler 24.03 SP3（与 CI 目标环境同族） | 本机构建/试跑结果可代表 24.03 容器行为 |
+| 容器内默认 root | stressor 可跑面最大；`--oomable` 默认即可 |
+
+### 9.3 全量 sequential 实测（关键验收数据）
+- 命令：`./stress-ng --sequential 1 --timeout 2 --metrics-brief -Y seq.yaml --exclude bad-ioctl,sysinval,watchdog,mlockmany,oom-pipe --skip-silent`
+- 结果（openEuler 24.03 SP3 aarch64，**非 root** 本机）：**319 passed / 74 skipped / 0 failed / 15m50s / rc=0**
+- 74 skipped 是诚实跳过（root/内核特性/库缺失：acl bpf kvm jpeg judy mpfr ls64 sve2 x86cpuid …）→ 容器内 root 会转 passed 一部分（ioport cpu-online ramfs rofs 等）
+- CI 断言锚点：`failed: 0` 行 + `successful run completed` + rc==0；`--timeout 5` 预算约 40min/镜像
+- pathological 五兄弟（bad-ioctl mlockmany oom-pipe sysinval watchdog）默认自动禁用，无需手工排除（但排除更干净）
+
+### 9.4 设计结论（写入 task_plan Phase 8）
+- "全量用例×全量参数"务实解：`--sequential 1 --timeout <N>s --verify`（用例全量）+ 62 个 `<name>-method all` 遍历（参数全量）+ 每镜像预算 45-60min
+- 断言：`grep -E "failed: [1-9]" log`（失败>0）+ rc==0；跳过不算失败（诚实跳过机制）
+- 20.03 EOL 源 → 容器内 sed 替换 archives.openeuler.org；dnf 失败不 fatal（基础镜像自带工具链）
+- 15 镜像矩阵 fail-fast:false + `if: always()` 汇总 job 断言 15/15
+- cron：北京时间 12:00 = UTC 04:00 → `0 4 * * *`（避开整点分钟不可行——用户明确指定时刻，按需写 0 4）
+- ghcr 改名：新推 `ghcr.io/wangxumarshall/sdc-stressng:verify-<tag>`；历史 opendcdiag-arm 的删除/改名需用户在 GitHub package 设置里手动操作（API 不支持 rename，git push 新名即可生效）
+
+
+
 > v3 变更：第六轮（对标 x86 → ARM64 饱和压测激发 SDC）研究成果并入。三份完整研究报告在 `docs/superpowers/research/`（R1 x86 基线 / R2 SDC 前沿 / R3 ARM64 饱和），实现方案在 `docs/superpowers/plans/2026-09-16-arm64-saturation-sdc.md`（12 patch）。本文件保留 v2 的历史研究与已落地方案记录；§8 起为第六轮摘要。
 
 ## 8. 第六轮研究摘要（2026-09-16，详细见 research/ 与 plans/ 文件）

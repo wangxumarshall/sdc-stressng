@@ -1,6 +1,43 @@
 # Progress Log
 
-## Session 2026-09-17（第七轮）: ARM64 饱和压测全部 12 patch 实施完成 — 11 commits pushed
+## Session 2026-09-17（第八轮）: GitHub Actions 多 OS 自动化验证工作流
+
+用户需求：15 个 openEuler LTS 镜像（20.03/22.03/24.03 × 5 SP）原生 container 模式构建 + 全量功能测试 + 基准对比 + 每日 12:00 触发 + ghcr.io 改名 sdc-stressng。
+
+### 交付物
+1. `.github/workflows/multi-os-verify.yml` — 5 jobs：
+   - manifest-check：15 tag 存在性 fail-fast 预检（docker manifest inspect）
+   - build-test ×15 matrix（fail-fast:false、max-parallel:5、container: openeuler/openeuler:<tag>、--user root、arm64 runner）：dnf 缓存（actions/cache 按 tag 分键）→ UBSan 构建（失败自动降级 plain 并 warning）→ smoke → --sequential 全量（timeout 5s/个 + --verify + --exclude 5 病理项）→ 62 个 *-method 全参数 sweep → 20s 基准采样（cpu-matrixprod/fma/memcpy/memrate-zva/stream）→ 二进制+报告 artifact
+   - benchmark-compare：15 份 bench yaml → 跨 OS bogo-ops/s 对比表 → job summary + artifact(90d)
+   - publish-image（仅手动 dispatch 且勾选）：15 个 verify-<tag> 推 ghcr.io/<repo>（container job 无 docker daemon → 独立 VM job 从 artifact 组装）
+   - final-status：gh api 数 matrix 实际完成数，断言 15/15，少一个都红
+2. `scripts/ci-verify-log.sh` — 日志断言（failed:>0 / 缺 completed 行 / rc≠0 三类判 fail；honest skip 不算）
+3. `scripts/ci-method-sweep.sh` — 62 个 *-method 全参数遍历（二进制自枚举方法；'all' 关键字优先，无则逐个；rc=3 EXIT_NO_RESOURCE 归环境受限非失败）
+
+### 本轮排掉的坑（全部实证）
+| 坑 | 实证 | 处置 |
+|---|---|---|
+| STATIC=1+SANITIZE=1 链接失败 | `cannot find -lubsan`（无 libubsan.a） | 工作流只用 SANITIZE=1 |
+| SANITIZE=1 也可能链接失败 | 本机 libubsan.so 是**断裂符号链接**（→ 不存在的 libubsan.so.1.0.0，openEuler 打包问题） | 构建步骤自动降级 plain + ::warning |
+| `-x --exclude` 语义 | 逗号分隔**纯名**列表非正则；未知名报错退出（stress-ng.c:594-607） | 工作流列表全部为已存在 stressor |
+| cyclic 全方法 rc=3 | `skipped: 1: cyclic`（非 root 无 RT 调度） | sweep 归 nolimit 非失败 |
+| `--<m>-method ?` probe 输出走 stderr | `2>&1 >/dev/null` 366 字节 / stdout 0 | 脚本用 2>&1 + grep |
+| while-read 管道子 shell 计数丢失 | sweep1 pass=43 但有 FAIL 行（计数 bug） | 重写为 for 循环直计数 |
+| sweep2 26 个 "not available" | sweep 运行中被我 make clean 删了二进制 | 假象，非脚本 bug；sweep3 复测 |
+| YAML 步骤被误删 | python yaml.safe_load 报 line 106 | 恢复 steps: 键 |
+| hashFiles 绝对路径 | 仅相对 workspace 有效 | cache key 改用 tag 直接分键 |
+
+### 全量参考数据（本机 openEuler 24.03 SP3 aarch64，非 root）
+- `--sequential 1 --timeout 2 --verify --exclude <5 病理>`：**319 passed / 74 skipped / 0 failed / 15m50s / rc=0** → CI 用 timeout 5 预计 ~40min/镜像（300min job 上限，安全）
+- method sweep（timeout 2）：43-50 pass / 0 fail（含逐方法枚举）
+- 退出码（stress-ng.h:328-334 权威）：EXIT_NOT_SUCCESS=2、EXIT_NO_RESOURCE=3、EXIT_NOT_IMPLEMENTED=4、EXIT_SIGNALED=5、EXIT_BY_SYS_EXIT=6、EXIT_METRICS_UNTRUSTWORTHY=7；rc=3 即环境受限（cyclic 无 RT 调度实测）。断言脚本只区分 0/3/非零非 3
+
+### 待办
+- [x] sweep3 干净复测：**pass=126 skip=2 nolimit=6 fail=0 RC=0**（dfp/plugin 诚实跳过）
+- [ ] git commit + push（用户首跑验证需网页手动触发 workflow_dispatch）
+- [ ] 首跑后修复 15 镜像实际暴露的问题（20.03 dnf 归档源是否可用等）
+
+
 
 用户目标：实现方案全部 12 个 patch；本机非 950 → 用 QEMU 模拟验证 SVE；SVE 功能动态开关。
 
