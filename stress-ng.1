@@ -8646,7 +8646,12 @@ start N workers that shuffle data around the CPU registers exercising register
 move instructions. Each bogo-op represents 1000 calls of a shuffling function
 that shuffles the registers 32 times. Only implemented for the GCC compiler
 since this requires register annotations and optimization level 0 to compile
-appropriately.
+appropriately. On x86-64 with SSE the MMX/XMM0..XMM7 vector registers are
+exercised too; on aarch64 the full NEON v0..v31 128 bit vector register file
+is exercised, and the SVE z0..z31 scalable vector register file is exercised
+as well when the run-time HWCAP_SVE feature check reports SVE hardware (the
+SVE code is compiled with a per-function target attribute so a single binary
+runs on both SVE and non-SVE aarch64 machines).
 .TP
 .B \-\-regs\-bitflip
 flip all the bits (invert) in each register after each register has been
