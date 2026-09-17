@@ -138,13 +138,18 @@ jobs:
       - name: Install build dependencies
         run: |
           set -x
-          # gcc/make ship with the base image; add optional libs so more
-          # stressors build in (judy, mpfr, xxhash, ...). Missing libs are
-          # not fatal — the build config adapts (Makefile.config probes).
+          # tar/gzip/git are needed by actions/checkout (the REST-API
+          # fallback path extracts the archive with tar — the 20.03
+          # base image ships without it). gcc/make ship with the base
+          # image; optional libs pull more stressors into the build
+          # (judy, mpfr, xxhash, ...). Missing libs are not fatal — the
+          # build config adapts (Makefile.config probes).
           dnf install -y --setopt=install_weak_deps=False --skip-broken \
-              make gcc gcc-c++ judy-devel mpfr-devel xxhash-devel \
+              tar gzip git make gcc gcc-c++ \
+              judy-devel mpfr-devel xxhash-devel \
               libaio-devel libcap-devel keyutils-libs-devel \
               bzip2-devel zlib-devel 2>&1 | tail -5 || true
+          command -v tar || { echo "::error::tar still missing — checkout cannot proceed"; exit 1; }
 
       - uses: actions/checkout@v7
 
