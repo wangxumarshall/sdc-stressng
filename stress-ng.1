@@ -1863,8 +1863,10 @@ force write serialization on each store operation (x86 only). This is a no-op
 for non-x86 architectures.
 .TP
 .B \-\-cache\-flush
-force flush cache on each store operation (x86 only). This is a no-op for
-non-x86 architectures.
+force flush cache on each store operation. On x86 this uses clflush; on
+RISC-V the CBO cache management instructions; on aarch64 the DC CIVAC
+data cache clean and invalidate instruction. This is a no-op for other
+architectures.
 .TP
 .B \-\-cache\-level N
 specify level of cache to exercise (1 \(eq L1 cache, 2 \(eq L2 cache, 3 \(eq L3/LLC cache (the default)).
@@ -6219,6 +6221,9 @@ read 8 bits per read
 T}
 write64stoq	T{
 write 64 bits per write with x86 rep stoq
+T}
+write64zva	T{
+write a full cache line of zeros per aarch64 DC ZVA instruction (no read for ownership, exercises the cache maintenance write path; aarch64 only)
 T}
 write32stow	T{
 write 32 bits per write with x86 rep stow

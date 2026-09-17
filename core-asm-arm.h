@@ -80,6 +80,40 @@ static inline void ALWAYS_INLINE stress_asm_arm_isb(void)
 }
 #endif
 
+#if defined(HAVE_ASM_ARM_DC_CIVAC)
+/*
+ *  DC CIVAC: data cache clean and invalidate by VA to point of
+ *  coherency - the aarch64 equivalent of the x86 clflush
+ */
+static inline void ALWAYS_INLINE stress_asm_arm_dc_civac(void *p)
+{
+	__asm__ __volatile__("dc civac, %0\n" : : "r"(p) : "memory");
+}
+#endif
+
+#if defined(HAVE_ASM_ARM_DC_CVAC)
+/*
+ *  DC CVAC: data cache clean by VA to point of coherency -
+ *  the aarch64 equivalent of the x86 clwb writeback
+ */
+static inline void ALWAYS_INLINE stress_asm_arm_dc_cvac(void *p)
+{
+	__asm__ __volatile__("dc cvac, %0\n" : : "r"(p) : "memory");
+}
+#endif
+
+#if defined(HAVE_ASM_ARM_DC_ZVA)
+/*
+ *  DC ZVA: data cache zero by VA - writes a full cache line of
+ *  zeros without a read-for-ownership, a high bandwidth cache
+ *  maintenance write path available at EL0 on aarch64
+ */
+static inline void ALWAYS_INLINE stress_asm_arm_dc_zva(void *p)
+{
+	__asm__ __volatile__("dc zva, %0\n" : : "r"(p) : "memory");
+}
+#endif
+
 /* #if defined(STRESS_ARCH_ARM) */
 #endif
 

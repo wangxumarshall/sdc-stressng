@@ -18,6 +18,7 @@
  *
  */
 #include "stress-ng.h"
+#include "core-asm-arm.h"
 #include "core-asm-x86.h"
 #include "core-builtin.h"
 #include "core-cpu.h"
@@ -1027,6 +1028,97 @@ STRESS_MEMRATE_WRITE_RATE(16, uint16_t)
 STRESS_MEMRATE_WRITE(8, uint8_t)
 STRESS_MEMRATE_WRITE_RATE(8, uint8_t)
 
+#if defined(HAVE_ASM_ARM_DC_ZVA) &&	\
+    defined(__aarch64__)
+/*
+ *  DC ZVA block size: CTR_EL0.DZMinLine (bits 31:28) gives the
+ *  log2 of the number of words, so the block size in bytes is
+ *  4 << DZMinLine.  A DZMinLine of 0 means DC ZVA zeroes nothing
+ *  (not supported at EL0).
+ */
+static uint32_t OPTIMIZE3 stress_memrate_dczva_block_size(void)
+{
+	uint64_t ctr;
+
+	__asm__ __volatile__("mrs %0, ctr_el0\n" : "=r" (ctr));
+
+	return (uint32_t)(4u << ((ctr >> 28) & 0xf));
+}
+
+/*
+ *  stress_memrate_write_zva()
+ *	write a whole cache line of zeros per DC ZVA instruction,
+ *  no read-for-ownership, exercising the cache maintenance
+ *  write path of the aarch64 data cache
+ */
+static inline uint64_t OPTIMIZE3 stress_memrate_write_zva(
+	const stress_memrate_context_t *context,
+	bool *valid)
+{
+	uint8_t *start ALIGNED(4096) = (uint8_t *)context->start;
+	uint8_t *end ALIGNED(4096) = (uint8_t *)context->end;
+	const uint32_t block_size = stress_memrate_dczva_block_size();
+	register uint8_t *ptr;
+
+	if (block_size == 0) {
+		*valid = false;
+		return 0;
+	}
+
+	for (ptr = start; (ptr + block_size) < end; ptr += block_size)
+		stress_asm_arm_dc_zva(ptr);
+
+	*valid = true;
+	return ((uintptr_t)ptr - (uintptr_t)start) / STRESS_KB;
+}
+
+static inline uint64_t OPTIMIZE3 stress_memrate_write_zva_rate(
+	const stress_memrate_context_t *context,
+	bool *valid)
+{
+	uint8_t *start ALIGNED(4096) = (uint8_t *)context->start;
+	uint8_t *end ALIGNED(4096) = (uint8_t *)context->end;
+	const uint32_t block_size = stress_memrate_dczva_block_size();
+	const size_t size = end - start;
+	const size_t chunk_size = (size > STRESS_MB) ? STRESS_MB : size;
+	register uint8_t *ptr;
+	double t1, t2;
+	double total_dur = 0.0;
+	double dur_remainder;
+	const double dur = (double)chunk_size / (STRESS_MB * (double)context->memrate_wr_mbs);
+
+	if (block_size == 0) {
+		*valid = false;
+		return 0;
+	}
+
+	t1 = stress_time_now();
+	for (ptr = start; (ptr + chunk_size) < end; ptr += chunk_size) {
+		register uint8_t *chunk_end = ptr + chunk_size;
+
+		for (; (ptr + block_size) < chunk_end; ptr += block_size)
+			stress_asm_arm_dc_zva(ptr);
+
+		t2 = stress_time_now();
+		total_dur += dur;
+		dur_remainder = total_dur - (t2 - t1);
+
+		if (dur_remainder >= 0.0) {
+			struct timespec t;
+			time_t sec = (time_t)dur_remainder;
+
+			t.tv_sec = sec;
+			t.tv_nsec = (long int)((dur_remainder -
+				(double)sec) * STRESS_NANOSECOND);
+			(void)nanosleep(&t, NULL);
+		}
+	}
+
+	*valid = true;
+	return ((uintptr_t)ptr - (uintptr_t)start) / STRESS_KB;
+}
+#endif
+
 static const stress_memrate_info_t memrate_info[] = {
 	{ "all",	MR_RW,  NULL,				NULL },
 #if defined(HAVE_ASM_X86_REP_STOSQ) &&	\
@@ -1068,6 +1160,10 @@ static const stress_memrate_info_t memrate_info[] = {
 	{ "write128",	MR_WR, stress_memrate_write128,		stress_memrate_write_rate128 },
 #endif
 	{ "write64",	MR_WR, stress_memrate_write64,		stress_memrate_write_rate64 },
+#if defined(HAVE_ASM_ARM_DC_ZVA) &&	\
+    defined(__aarch64__)
+	{ "write64zva",	MR_WR, stress_memrate_write_zva,	stress_memrate_write_zva_rate },
+#endif
 	{ "write32",	MR_WR, stress_memrate_write32,		stress_memrate_write_rate32 },
 	{ "write16",	MR_WR, stress_memrate_write16,		stress_memrate_write_rate16 },
 	{ "write8",	MR_WR, stress_memrate_write8,		stress_memrate_write_rate8 },
