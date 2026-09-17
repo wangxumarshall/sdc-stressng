@@ -121,9 +121,37 @@ Note that `-O3` is required: at `-O2` GCC keeps using the NEON 128-bit vectors
 even with SVE2 enabled in the `-march` option. Cross builds can force the
 decision with `make MARCH_AARCH64_SVE2=1` (emit SVE2 code regardless of the
 build host) or `MARCH_AARCH64_SVE2=0` (never emit SVE2 code). The `sve2`
-stressor provides a dedicated SVE2 workload with golden-value checking, and
-the `ls64` stressor exercises the 64 byte atomic load/store (LD64B/ST64B)
-extension where the hardware has it.
+stressor provides a dedicated SVE2 workload with golden-value checking
+(`--sve2-method` selects the fmla, gather, fcmla, bitperm or bfdot datapath,
+each verified against a scalar golden reference), and the `ls64` stressor
+exercises the 64 byte atomic load/store (LD64B/ST64B) extension where the
+hardware has it.
+
+The aarch64 crypto extension units are exercised by the `armcrypto` stressor:
+NEON AES/SHA1/SHA256/SHA512/SHA3/PMULL/SM3/SM4 and SVE2 crypto (sveaes,
+svepmull, svesha3, svesm4) round functions interleaved across independent
+lanes, with the aes and pmull methods cross-checked against software
+references as a silent-data-corruption detector. Every method is gated at run
+time by its HWCAP/HWCAP2 feature bit, so one binary honestly runs or skips
+each unit according to the hardware it lands on. The `regs` stressor
+exercises the full NEON v0-v31 vector register file and, on SVE hardware,
+the SVE z0-z31 scalable register file. The `rdrand` stressor reads the
+FEAT_RNG RNDR/RNDRRS hardware random number registers where present, `tsc`
+reads the cntvct_el0 virtual counter, `--cache-flush`/`--cache-clwb` use the
+DC CIVAC/CVAC cache maintenance instructions, and `--memrate-method
+write64zva` exercises the DC ZVA zero-by-VA write path. The `fma` stressor
+dispatches SVE2 FMLA kernels at run time on SVE hardware (GCC 12 has no
+aarch64 target_clones, so this is the FMV-equivalent mechanism).
+`--rapl`/`--raplstat` read hwmon power sensors on aarch64 where the platform
+exposes them (BMC/SoC/DDR rail sensors).
+
+For SDC (silent data corruption) hunting on aarch64 servers the
+`scripts/sdc-run.sh` entry point orchestrates the diagnostic funnel: `full`
+(all-cores trigger load with di/dt steps and optional `--preheat` residual
+heat staging), `scan` (per-physical-core localisation), `pair` (SMT sibling
+contention matrix: fma x fma, fma x cpu, armcrypto x fma, cacheline x
+cacheline rate ratios map the shared-resource topology) and `path`
+(datapath-specific golden cross-checks).
 
 NOTE: ALWAYS run ```make clean``` after fetching changes from the git repository
 to force the build to regenerate the build configuration file. Parallel builds using

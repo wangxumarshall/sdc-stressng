@@ -560,8 +560,10 @@ show help.
 .TP
 .B \-\-ignite\-cpu
 alter kernel controls to try and maximize the CPU. This requires root
-privilege to alter various /sys interface controls. Currently this only
-works for Intel P-State enabled x86 systems on Linux.
+privilege to alter various /sys interface controls. On x86 this uses the
+Intel P-State and energy_perf_bias interfaces; the generic Linux cpufreq
+sysfs interface (scaling_governor, scaling_max_freq, boost) is used on
+all architectures including aarch64 where the platform exposes cpufreq.
 .TP
 .B \-\-interrupts
 check for any system management interrupts or error interrupts that occur,
