@@ -65,6 +65,10 @@ const struct option stress_long_options[] = {
 	{ "apparmor",		1,	NULL,	OPT_apparmor },
 	{ "apparmor-ops",	1,	NULL,	OPT_apparmor_ops },
 
+	{ "armcrypto",		1,	NULL,	OPT_armcrypto },
+	{ "armcrypto-method",	1,	NULL,	OPT_armcrypto_method },
+	{ "armcrypto-ops",	1,	NULL,	OPT_armcrypto_ops },
+
 	{ "atomic",		1,	NULL,	OPT_atomic },
 	{ "atomic-ops",		1,	NULL,	OPT_atomic_ops },
 
@@ -1605,6 +1609,7 @@ const struct option stress_long_options[] = {
 	{ "swap-self",		0,	NULL,	OPT_swap_self },
 
 	{ "sve2",		1,	NULL,	OPT_sve2 },
+	{ "sve2-method",	1,	NULL,	OPT_sve2_method },
 	{ "sve2-ops",		1,	NULL,	OPT_sve2_ops },
 
 	{ "switch",		1,	NULL,	OPT_switch },

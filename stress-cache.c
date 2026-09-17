@@ -20,6 +20,7 @@
 #include "stress-ng.h"
 #include "core-asm-x86.h"
 #include "core-asm-riscv.h"
+#include "core-asm-arm.h"
 #include "core-affinity.h"
 #include "core-builtin.h"
 #include "core-cpu-cache.h"
@@ -75,14 +76,16 @@ static const stress_help_t help[] = {
 	{ NULL, "cache-clflushopt",	"optimized cache line flush (x86 only)" },
 #endif
 #if defined(HAVE_ASM_X86_CLWB) ||	\
-    defined(HAVE_ASM_RISCV_CBO_CACHE_MANAGEMENT)
-	{ NULL, "cache-clwb",		"cache line writeback (x86 / RISC-V)" },
+    defined(HAVE_ASM_RISCV_CBO_CACHE_MANAGEMENT) || \
+    defined(HAVE_ASM_ARM_DC_CVAC)
+	{ NULL, "cache-clwb",		"cache line writeback (x86 / RISC-V / ARM)" },
 #endif
 	{ NULL, "cache-enable-all",	"enable all cache options (fence,flush,sfence,etc..)" },
 	{ NULL,	"cache-fence",		"serialize stores" },
 #if defined(HAVE_ASM_X86_CLFLUSH) ||	\
-    defined(HAVE_ASM_RISCV_CBO_CACHE_MANAGEMENT)
-	{ NULL,	"cache-flush",		"flush cache after every memory write (x86 / RISC-V)" },
+    defined(HAVE_ASM_RISCV_CBO_CACHE_MANAGEMENT) || \
+    defined(HAVE_ASM_ARM_DC_CIVAC)
+	{ NULL,	"cache-flush",		"flush cache after every memory write (x86 / RISC-V / ARM)" },
 #endif
 	{ NULL,	"cache-level N",	"only exercise specified cache" },
 	{ NULL, "cache-no-affinity",	"do not change CPU affinity" },
@@ -144,6 +147,8 @@ static uint64_t disabled_flags;
 #define SHIM_CLFLUSH(p)		stress_asm_x86_clflush(p)
 #elif defined(HAVE_ASM_RISCV_CBO_CACHE_MANAGEMENT)
 #define SHIM_CLFLUSH(p)		stress_asm_riscv_cbo_flush(p)
+#elif defined(HAVE_ASM_ARM_DC_CIVAC)
+#define SHIM_CLFLUSH(p)		stress_asm_arm_dc_civac(p)
 #else
 #define SHIM_CLFLUSH(p)
 #endif
@@ -164,6 +169,8 @@ static uint64_t disabled_flags;
 #define SHIM_CLWB(p)		stress_asm_x86_clwb(p)
 #elif defined(HAVE_ASM_RISCV_CBO_CACHE_MANAGEMENT)
 #define SHIM_CLWB(p)		stress_asm_riscv_cbo_clean(p)
+#elif defined(HAVE_ASM_ARM_DC_CVAC)
+#define SHIM_CLWB(p)		stress_asm_arm_dc_cvac(p)
 #else
 #define SHIM_CLWB(p)
 #endif

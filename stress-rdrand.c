@@ -94,6 +94,87 @@ static inline uint64_t seed64(void)
 }
 #endif
 
+#if defined(STRESS_ARCH_ARM) &&	\
+    defined(__aarch64__) &&	\
+    defined(HAVE_ASM_ARM_RNDR)
+
+#include <sys/auxv.h>
+#include <asm/hwcap.h>
+
+#define HAVE_RAND_CAPABILITY
+#define HAVE_SEED_CAPABILITY
+
+/*
+ *  FEAT_RNG (Armv8.5-RNG): RNDR reads the random number from the
+ *  hardware entropy source, RNDRRS re-seeds it.  Both set NZCV
+ *  flags: N == 0 means the read succeeded, N == 1 means the
+ *  entropy source is temporarily exhausted and the destination
+ *  register holds the last valid random number instead.
+ */
+static bool rdrand_supported = false;
+
+static inline bool arm_rndr(uint64_t *val)
+{
+	uint64_t v;
+	int ok;
+
+	__asm__ __volatile__(
+		"mrs %0, S3_3_c2_c4_0\n"
+		"cset %w1, cc\n"
+		: "=r" (v), "=r" (ok)
+		:
+		: "memory");
+
+	*val = v;
+	return ok != 0;
+}
+
+static inline bool arm_rndrrs(uint64_t *val)
+{
+	uint64_t v;
+	int ok;
+
+	__asm__ __volatile__(
+		"mrs %0, S3_3_c2_c4_1\n"
+		"cset %w1, cc\n"
+		: "=r" (v), "=r" (ok)
+		:
+		: "memory");
+
+	*val = v;
+	return ok != 0;
+}
+
+static int stress_rdrand_supported(const char *name)
+{
+	const unsigned long hwcap2 = getauxval(AT_HWCAP2);
+
+	if (!(hwcap2 & HWCAP2_RNG)) {
+		pr_inf_skip("%s stressor will be skipped, CPU does not "
+			"support the RNDR instruction\n", name);
+		return -1;
+	}
+	rdrand_supported = true;
+	return 0;
+}
+
+static inline uint64_t rand64(void)
+{
+	uint64_t val = 0;
+
+	(void)arm_rndr(&val);
+	return val;
+}
+
+static inline uint64_t seed64(void)
+{
+	uint64_t val = 0;
+
+	(void)arm_rndrrs(&val);
+	return val;
+}
+#endif
+
 #if defined(STRESS_ARCH_PPC64) &&	\
     defined(HAVE_ASM_PPC64_DARN)
 

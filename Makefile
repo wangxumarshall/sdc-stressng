@@ -528,6 +528,7 @@ STRESS_SRC = \
 	stress-aiol.c \
 	stress-alarm.c \
 	stress-apparmor.c \
+	stress-armcrypto.c \
 	stress-atomic.c \
 	stress-bad-altstack.c \
 	stress-bad-ioctl.c \

@@ -240,6 +240,114 @@ static const stress_fma_func_t stress_fma_funcs[] = {
 	stress_fma_sub231_float,
 };
 
+/*
+ *  SVE2 kernel variants, compiled with a per-function target
+ *  attribute (so the file still builds on a plain armv8-a
+ *  default -march) and dispatched at run time by the HWCAP_SVE
+ *  feature check - one binary runs the SVE2 256-bit datapath
+ *  on SVE hardware and the auto-vectorised NEON path elsewhere.
+ *  GCC 12 has no aarch64 target_clones (function multi-
+ *  versioning) support, so the dispatch is a runtime table
+ *  selection, the standard FMV-equivalent pattern.
+ */
+#if defined(STRESS_ARCH_ARM) &&	\
+    defined(__aarch64__) &&	\
+    defined(HAVE_ARM_NEON_CRYPTO)
+#define HAVE_FMA_SVE2
+
+#include <arm_sve.h>
+#include <sys/auxv.h>
+#include <asm/hwcap.h>
+
+#define FMA_SVE2_TARGET __attribute__((target("arch=armv9-a+sve2")))
+
+#define FMA_SVE2_KERNEL_D(name, acc)					\
+FMA_SVE2_TARGET								\
+static void stress_fma_ ## name ## _double_sve2(stress_fma_t *fma)	\
+{									\
+	register size_t i;						\
+	register const size_t vl = (size_t)svcntd();			\
+	const svbool_t pg = svptrue_b64();				\
+	register const double b = fma->double_b;			\
+	register const double c = fma->double_c;			\
+	const svfloat64_t vb = svdup_f64(b);				\
+	const svfloat64_t vc = svdup_f64(c);				\
+									\
+	for (i = 0; i < FMA_ELEMENTS; i += vl) {			\
+		svfloat64_t va = svld1_f64(pg, &fma->double_a[i]);	\
+									\
+		svst1_f64(pg, &fma->double_a[i], acc);			\
+	}								\
+}
+
+#define FMA_SVE2_KERNEL_F(name, acc)					\
+FMA_SVE2_TARGET								\
+static void stress_fma_ ## name ## _float_sve2(stress_fma_t *fma)	\
+{									\
+	register size_t i;						\
+	register const size_t vl = (size_t)svcntw();			\
+	const svbool_t pg = svptrue_b32();				\
+	register const float b = fma->float_b;				\
+	register const float c = fma->float_c;				\
+	const svfloat32_t vb = svdup_f32(b);				\
+	const svfloat32_t vc = svdup_f32(c);				\
+									\
+	for (i = 0; i < FMA_ELEMENTS; i += vl) {			\
+		svfloat32_t va = svld1_f32(pg, &fma->float_a[i]);	\
+									\
+		svst1_f32(pg, &fma->float_a[i], acc);			\
+	}								\
+}
+
+/*  svmla(pg, x, y, z) = x + y * z;  svmsb = y*z - x;  svnmsb = -(y*z) + x  */
+
+/*  double: a[i] = (a[i] * c) + b  */
+FMA_SVE2_KERNEL_D(add132, svmla_f64_m(pg, vb, va, vc))
+/*  double: a[i] = (a[i] * c) - b  */
+FMA_SVE2_KERNEL_D(sub132, svmsb_f64_m(pg, va, vc, vb))
+/*  double: a[i] = (b * a[i]) + c  */
+FMA_SVE2_KERNEL_D(add213, svmla_f64_m(pg, vc, vb, va))
+/*  double: a[i] = (b * a[i]) - c  */
+FMA_SVE2_KERNEL_D(sub213, svmsb_f64_m(pg, vb, va, vc))
+/*  double: a[i] = c + (a[i] * b)  */
+FMA_SVE2_KERNEL_D(add231, svmla_f64_m(pg, vc, va, vb))
+/*  double: a[i] = c - (a[i] * b)  */
+FMA_SVE2_KERNEL_D(sub231, svnmsb_f64_m(pg, va, vb, vc))
+
+/*  float variants  */
+FMA_SVE2_KERNEL_F(add132, svmla_f32_m(pg, vb, va, vc))
+FMA_SVE2_KERNEL_F(sub132, svmsb_f32_m(pg, va, vc, vb))
+FMA_SVE2_KERNEL_F(add213, svmla_f32_m(pg, vc, vb, va))
+FMA_SVE2_KERNEL_F(sub213, svmsb_f32_m(pg, vb, va, vc))
+FMA_SVE2_KERNEL_F(add231, svmla_f32_m(pg, vc, va, vb))
+FMA_SVE2_KERNEL_F(sub231, svnmsb_f32_m(pg, va, vb, vc))
+
+/*
+ *  fma_sve2_supported()
+ *	run-time dynamic switch for the SVE2 dispatch
+ */
+static bool fma_sve2_supported(void)
+{
+	return (getauxval(AT_HWCAP) & HWCAP_SVE) != 0;
+}
+
+static const stress_fma_func_t stress_fma_sve2_funcs[] = {
+	stress_fma_add132_double_sve2,
+	stress_fma_add132_float_sve2,
+	stress_fma_add213_double_sve2,
+	stress_fma_add213_float_sve2,
+	stress_fma_add231_double_sve2,
+	stress_fma_add231_float_sve2,
+
+	stress_fma_sub132_double_sve2,
+	stress_fma_sub132_float_sve2,
+	stress_fma_sub213_double_sve2,
+	stress_fma_sub213_float_sve2,
+	stress_fma_sub231_double_sve2,
+	stress_fma_sub231_float_sve2,
+};
+#endif
+
 /* libc variants */
 #if (defined(HAVE_FMA)  || defined(FP_FAST_FMA)) && 	\
     (defined(HAVE_FMAF) || defined(FP_FAST_FMAF))
@@ -557,6 +665,18 @@ static int stress_fma(stress_args_t *args)
 			"to non-libc fma operations\n", args->name);
 	}
 	fma_func_array = stress_fma_funcs;
+#endif
+#if defined(HAVE_FMA_SVE2)
+	/*
+	 *  SVE2 dispatch (FMV equivalent): pick the SVE2 kernel
+	 *  table when the hardware reports SVE and the libc
+	 *  variants were not explicitly requested.  The SVE2
+	 *  kernels implement the exact same arithmetic as the
+	 *  scalar kernels, so the a1/a2 cross-verification
+	 *  works unchanged across both paths.
+	 */
+	if (!fma_libc && fma_sve2_supported())
+		fma_func_array = stress_fma_sve2_funcs;
 #endif
 
 	stress_signal_catch_sigill();

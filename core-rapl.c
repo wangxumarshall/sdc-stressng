@@ -98,12 +98,12 @@ int stress_rapl_domains_get(stress_rapl_domain_t **rapl_domains)
 
 	dir = opendir("/sys/class/powercap");
 	if (dir == NULL) {
-		pr_inf("device does not have RAPL, cannot measure power usage, errno=%d (%s)\n",
-			errno, strerror(errno));
-		return -1;
+		/*  no powercap (non-Intel); hwmon power sensors may
+		 *  still be enumerated below  */
+		dir = NULL;
 	}
 
-	while ((entry = readdir(dir)) != NULL) {
+	while (dir && (entry = readdir(dir)) != NULL) {
 		char path[PATH_MAX];
 		FILE *fp;
 		stress_rapl_domain_t *rapl_domain;
@@ -192,7 +192,85 @@ int stress_rapl_domains_get(stress_rapl_domain_t **rapl_domains)
 		stress_rapl_add_list(rapl_domains, rapl_domain);
 		n++;
 	}
-	(void)closedir(dir);
+	if (dir)
+		(void)closedir(dir);
+
+	/*
+	 *  ARM (and other non-Intel) servers expose instantaneous
+	 *  power sensors via hwmon powerN_input attributes (uW)
+	 *  rather than cumulative RAPL energy counters; add those
+	 *  as additional domains when present.
+	 */
+	{
+		DIR *hdir;
+		const struct dirent *hentry;
+
+		hdir = opendir("/sys/class/hwmon");
+		if (hdir) {
+			while ((hentry = readdir(hdir)) != NULL) {
+				char hpath[PATH_MAX];
+				DIR *pdir;
+				const struct dirent *pentry;
+
+				(void)snprintf(hpath, sizeof(hpath),
+					"/sys/class/hwmon/%s", hentry->d_name);
+				pdir = opendir(hpath);
+				if (!pdir)
+					continue;
+				while ((pentry = readdir(pdir)) != NULL) {
+					stress_rapl_domain_t *rapl_domain;
+					char name[64];
+					FILE *fp;
+
+					if (shim_strncmp(pentry->d_name, "power", 5) ||
+					    !shim_strstr(pentry->d_name, "_input"))
+						continue;
+					(void)snprintf(hpath, sizeof(hpath),
+						"/sys/class/hwmon/%s/%s",
+						hentry->d_name, pentry->d_name);
+					fp = fopen(hpath, "r");
+					if (!fp)
+						continue;
+					(void)fclose(fp);
+
+					if ((rapl_domain = (stress_rapl_domain_t *)calloc(1, sizeof(*rapl_domain))) == NULL)
+						continue;
+					(void)snprintf(name, sizeof(name),
+						"hwmon:%s:%s", hentry->d_name,
+						pentry->d_name);
+					rapl_domain->name = shim_strdup(name);
+					(void)snprintf(hpath, sizeof(hpath),
+						"/sys/class/hwmon/%s/name", hentry->d_name);
+					rapl_domain->domain_name = NULL;
+					fp = fopen(hpath, "r");
+					if (fp) {
+						char domain_name[128];
+
+						if (fgets(domain_name, sizeof(domain_name), fp) != NULL) {
+							const size_t idx = shim_strcspn(domain_name, "\n");
+
+							if (LIKELY(idx < sizeof(domain_name)))
+								domain_name[idx] = '\0';
+							rapl_domain->domain_name = shim_strdup(domain_name);
+						}
+						(void)fclose(fp);
+					}
+					if (!rapl_domain->name || !rapl_domain->domain_name) {
+						free(rapl_domain->name);
+						free(rapl_domain->domain_name);
+						free(rapl_domain);
+						continue;
+					}
+					rapl_domain->index = (size_t)n;
+					rapl_domain->max_energy_uj = -1.0;	/* hwmon: power sensor */
+					stress_rapl_add_list(rapl_domains, rapl_domain);
+					n++;
+				}
+				(void)closedir(pdir);
+			}
+			(void)closedir(hdir);
+		}
+	}
 
 	if (!n) {
 		if (unreadable_energy_uj)
@@ -221,6 +299,34 @@ static int stress_rapl_power_get(stress_rapl_domain_t *rapl_domains, const int w
 		char path[PATH_MAX];
 		FILE *fp;
 		double ujoules;
+		const bool is_hwmon = rapl_domain->max_energy_uj < 0.0;
+
+		if (is_hwmon) {
+			/*  hwmon powerN_input: instantaneous power in uW.
+			 *  Domain name format "hwmon:<dir>:<attr>"  */
+			double uwatts;
+			char hdir[64], hattr[64];
+
+			if (sscanf(rapl_domain->name, "hwmon:%63[^:]:%63s",
+				   hdir, hattr) != 2)
+				continue;
+			(void)snprintf(path, sizeof(path),
+				"/sys/class/hwmon/%s/%s", hdir, hattr);
+			if ((fp = fopen(path, "r")) == NULL)
+				continue;
+			if (fscanf(fp, "%lf\n", &uwatts) == 1) {
+				const double t_now = stress_time_now();
+				const double t_delta = t_now - rapl_domain->data[which].time;
+
+				got_data = 0;
+				if ((uwatts > 0.0) && (t_delta >= 0.25)) {
+					rapl_domain->data[which].time = t_now;
+					rapl_domain->data[which].power_watts = uwatts / 1000000.0;
+				}
+			}
+			(void)fclose(fp);
+			continue;
+		}
 
 		(void)snprintf(path, sizeof(path),
 			"/sys/class/powercap/%s/energy_uj",

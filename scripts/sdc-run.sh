@@ -36,14 +36,25 @@
 #	NG=./stress-ng ./scripts/sdc-run.sh <mode> [options]
 #
 #	Modes:
-#	  full   [-t secs] [-o dir] [--sdcshield CMD]   default duration 2h
+#	  full   [-t secs] [-o dir] [--sdcshield CMD] [--preheat mins]
+#	         default duration 2h
 #	  scan   [-t secs-per-core] [-o dir] [--sdcshield CMD]
 #	  path   [-t secs] [-c cpulist] [-o dir]        default duration 600s
+#	  pair   [-t secs-per-pair] [-c cpulist] [-o dir]
+#	         SMT contention matrix: for each physical core, run the
+#	         sibling threads against each other in 4 combinations
+#	         (fma x fma, fma x cpu, armcrypto x fma, cacheline x
+#	         cacheline) and record per-combination bogo-ops rates.
+#	         A rate ratio near 0.5 means the contended resource is
+#	         fully shared, near 1.0 means private - this maps the
+#	         SMT2 sharing topology of the chip (no public microarch
+#	         data exists for ARM server SMT2 cores).
 #	  all    run full -> scan -> path sequentially
 #
 #	Options:
-#	  -t SECS      duration (full/path: total; scan: per core)
-#	  -c LIST      CPU list (scan/path only), default: all online
+#	  -t SECS      duration (full/path: total; scan: per core;
+#	                pair: per physical core)
+#	  -c LIST      CPU list (scan/path/pair only), default: all online
 #	  -o DIR       output directory, default sdc_<mode>_<timestamp>
 #	  --sdcshield CMD   SDCShield command to run alongside (full) or
 #	                    per core (scan); e.g. --sdcshield "./run-sdcshield.sh"
@@ -52,6 +63,12 @@
 #	                cores) because single-core isolation rarely triggers
 #	                SDC - the machine-wide concurrency is part of the
 #	                trigger condition
+#	  --preheat MINS  full mode: run a pure heat load (all-core fma +
+#	                vecfp, no verify) for MINS minutes before the verify
+#	                window; residual heat from a preceding hot load is an
+#	                empirically observed SDC trigger condition (the
+#                failing testcase only fails when run after the
+#                heat-generating one)
 #
 #  Examples:
 #	NG=./stress-ng ./scripts/sdc-run.sh full -t 7200
@@ -70,13 +87,14 @@ CPU_LIST=""
 OUT=""
 SDCSHIELD_ARG=""
 KEEP_BG=0
+PREHEAT=0
 
 usage() { sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 #  Parse arguments
 while [ $# -gt 0 ]; do
 	case "$1" in
-	full|scan|path|all)
+	full|scan|path|pair|all)
 		MODE="$1"; shift ;;
 	-t)
 		DUR="$2"; shift 2 ;;
@@ -88,6 +106,8 @@ while [ $# -gt 0 ]; do
 		SDCSHIELD_ARG="--sdcshield $2"; shift 2 ;;
 	--keep-bg)
 		KEEP_BG="$2"; shift 2 ;;
+	--preheat)
+		PREHEAT="$2"; shift 2 ;;
 	-h|--help)
 		usage 0 ;;
 	*)
@@ -229,6 +249,19 @@ run_full()
 	echo "=== mode full: $N_PHYSICAL cpu + $N_PHYSICAL fma workers on --taskset physical, ${dur}s ==="
 	echo "                (2 workers per physical core = both SMT siblings busy)"
 	[ -n "$SDCSHIELD_ARG" ] && echo "                SDCShield: $SDCSHIELD_ARG"
+
+	#  Optional preheat stage: a pure heat load before the verify
+	#  window.  Residual heat is an empirically observed SDC trigger
+	#  (the failing testcase only failed when run right after the
+	#  heat-generating one), so the verify window opens on a hot
+	#  machine by design.
+	if [ "$PREHEAT" -gt 0 ]; then
+		echo "=== preheat: $PREHEAT min all-core fma+vecfp heat load (no verify) ==="
+		"$NG" --fma "$N_PHYSICAL" --taskset physical \
+		      --vecfp "$N_PHYSICAL" \
+		      -t $((PREHEAT * 60))s > "$out/preheat.log" 2>&1
+		echo "    preheat done (rc=$?), verify window starts hot"
+	fi
 
 	{
 		echo "mode=full duration=${dur}s physical=$N_PHYSICAL logical=$N_LOGICAL smt=$SMT"
@@ -373,6 +406,97 @@ run_path()
 }
 
 #  ---------------------------------------------------------------------------
+#  Mode: pair - SMT sibling contention matrix (stage 2b)
+#
+#  For every physical core, run the SMT sibling threads against each
+#  other in 4 workload combinations and record the bogo-ops rates.
+#  On non-SMT machines each "pair" degenerates to a single CPU and the
+#  matrix still runs (one worker per combination, rates = single
+#  thread baseline) which keeps the script testable on any machine.
+#  ---------------------------------------------------------------------------
+run_pair()
+{
+	local out=${OUT:-sdc_pair_${TS}}
+	local per_pair=${DUR:-30}
+	local rc=0
+	mkdir -p "$out"
+
+	#  Target cores: explicit list or every physical core
+	local -a reps=()
+	if [ -n "$CPU_LIST" ]; then
+		for c in $(expand_list "$CPU_LIST"); do
+			reps+=("$c")
+		done
+	else
+		for rep in "${!SIBLING_PAIR[@]}"; do
+			reps+=("$rep")
+		done
+	fi
+	local n_reps=${#reps[@]}
+	echo "=== mode pair: ${n_reps} physical cores x 4 combinations, ${per_pair}s each ==="
+	[ $SMT -eq 0 ] && echo "                (no SMT: single worker per combination = baseline rates)"
+
+	#  The contention matrix.  Each entry: NAME:stressor1:method1:stressor2:method2
+	#  fma x fma       -> both siblings hammer the shared vector pipelines
+	#  fma x cpu       -> vector vs integer dispatch port contention
+	#  armcrypto x fma -> independent units, expect near-linear scaling
+	#  cacheline x cacheline -> shared L1/L2 write pressure
+	local -a COMBOS=(
+		"fma_x_fma:fma::fma:"
+		"fma_x_cpu:fma::cpu:matrixprod"
+		"armcrypto_x_fma:armcrypto::fma:"
+		"cacheline_x_cacheline:cacheline::cacheline:"
+	)
+
+	: > "$out/pair-matrix.txt"
+	local rep combo
+	for rep in "${reps[@]}"; do
+		local pair="${SIBLING_PAIR[$rep]:-$rep}"
+		for combo in "${COMBOS[@]}"; do
+			local name="${combo%%:*}"
+			local rest="${combo#*:}"
+			local s1="${rest%%:*}"; rest="${rest#*:}"
+			local m1="${rest%%:*}"; rest="${rest#*:}"
+			local s2="${rest%%:*}"
+			local m2="${rest#*:}"
+
+			#  Build the per-sibling argument sets; on non-SMT
+			#  machines both workers land on the same single CPU
+			local c1 c2
+			c1="${pair%%,*}"
+			c2="${pair##*,}"
+			[ "$c2" = "$pair" ] && c2="$c1"
+
+			local -a A1=(--"$s1" 1 --taskset "$c1")
+			[ -n "$m1" ] && A1+=(--"$s1"-method "$m1")
+			local -a A2=(--"$s2" 1 --taskset "$c2")
+			[ -n "$m2" ] && A2+=(--"$s2"-method "$m2")
+
+			"$NG" "${A1[@]}" "${A2[@]}" \
+				--metrics-brief -Y "$out/pair_${rep}_${name}.yaml" \
+				-t "${per_pair}s" > "$out/pair_${rep}_${name}.log" 2>&1
+			local prc=$?
+			[ $prc -ne 0 ] && { rc=$prc; echo "  cpu $pair combo $name: rc=$prc"; }
+
+			#  Record the bogo-ops rate lines (data rows) for the
+			#  combo: lines after the metrics-brief header that
+			#  start with the stressor name and carry numbers
+			local ops
+			ops=$(awk '/\(real time\) \(usr\+sys time\)/{seen=1; next}
+				   seen && NF >= 9 {print $4 "=" $(NF-1)}
+				   /^stress-ng: info/{seen=0}' \
+				"$out/pair_${rep}_${name}.log" 2>/dev/null | tr '\n' ' ')
+			echo "$rep ($pair) $name: $ops" >> "$out/pair-matrix.txt"
+		done
+		echo "  core $pair done"
+	done
+
+	echo "=== pair done (rc=$rc), matrix in $out/pair-matrix.txt ==="
+	echo "    rate ratio ~0.5 = fully shared resource, ~1.0 = private"
+	return $rc
+}
+
+#  ---------------------------------------------------------------------------
 #  Mode: all - the full funnel, sequentially
 #  ---------------------------------------------------------------------------
 run_all()
@@ -396,5 +520,6 @@ case "$MODE" in
 full)	run_full ;;
 scan)	run_scan ;;
 path)	run_path ;;
+pair)	run_pair ;;
 all)	run_all ;;
 esac

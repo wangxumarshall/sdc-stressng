@@ -1922,6 +1922,17 @@ do {			\
 #if defined(STRESS_ARCH_ARM) &&	\
     defined(__aarch64__)
 
+#include <arm_neon.h>
+#include <arm_sve.h>
+#include <sys/auxv.h>
+#include <asm/hwcap.h>
+
+static void NOINLINE OPTIMIZE0 stress_regs_exercise_neon(stress_args_t *args, register uint64_t v);
+#if defined(HAVE_ARM_NEON_CRYPTO)
+static void NOINLINE OPTIMIZE0 stress_regs_exercise_sve(stress_args_t *args, register uint64_t v);
+static bool sve_supported(void);
+#endif
+
 #define STRESS_REGS_EXERCISE
 /*
  *  stress_regs_exercise()
@@ -2128,7 +2139,211 @@ do {			\
 		x25 + x26 + x27 + x28 + x29 +
 		x30;
 #undef SHUFFLE_REGS
+
+	stress_regs_exercise_neon(args, v);
+#if defined(HAVE_ARM_NEON_CRYPTO)
+	if (LIKELY(sve_supported()))
+		stress_regs_exercise_sve(args, v);
+#endif
 }
+
+/*
+ *  ARM64 NEON v0..v31 vector register file exercise; NEON
+ *  (asimd) is baseline on aarch64, 32 x 128 bit registers
+ *  with high-toggle patterns to maximise bit flipping in
+ *  the vector register file SRAM.
+ */
+static void NOINLINE OPTIMIZE0 stress_regs_exercise_neon(stress_args_t *args, register uint64_t v)
+{
+	const uint8x16_t vseed = vreinterpretq_u8_u64(vdupq_n_u64(
+		((uint64_t)v << 48) ^ ((uint64_t)v >> 48) ^ 0xa55a5aa5a55a5aa5ULL));
+	register uint8x16_t v0  __asm__("v0")  = vseed;
+	register uint8x16_t v1  __asm__("v1")  = v0 ^ vreinterpretq_u8_u64(vdupq_n_u64(0x5555aaaa5555aaaaULL));
+	register uint8x16_t v2  __asm__("v2")  = v0 ^ vreinterpretq_u8_u64(vdupq_n_u64(0xaaaa5555aaaa5555ULL));
+	register uint8x16_t v3  __asm__("v3")  = v0 ^ vreinterpretq_u8_u64(vdupq_n_u64(0x3333cccc3333ccccULL));
+	register uint8x16_t v4  __asm__("v4")  = v0 ^ vreinterpretq_u8_u64(vdupq_n_u64(0xcccc3333cccc3333ULL));
+	register uint8x16_t v5  __asm__("v5")  = veorq_u8(v0, v1);
+	register uint8x16_t v6  __asm__("v6")  = veorq_u8(v1, v2);
+	register uint8x16_t v7  __asm__("v7")  = veorq_u8(v2, v3);
+	register uint8x16_t v8  __asm__("v8")  = veorq_u8(v3, v4);
+	register uint8x16_t v9  __asm__("v9")  = veorq_u8(v4, v0);
+	register uint8x16_t v10 __asm__("v10") = vmvnq_u8(v5);
+	register uint8x16_t v11 __asm__("v11") = vmvnq_u8(v6);
+	register uint8x16_t v12 __asm__("v12") = vmvnq_u8(v7);
+	register uint8x16_t v13 __asm__("v13") = vmvnq_u8(v8);
+	register uint8x16_t v14 __asm__("v14") = vmvnq_u8(v9);
+	register uint8x16_t v15 __asm__("v15") = vaddq_u8(v0, v1);
+	register uint8x16_t v16 __asm__("v16") = vaddq_u8(v1, v2);
+	register uint8x16_t v17 __asm__("v17") = vaddq_u8(v2, v3);
+	register uint8x16_t v18 __asm__("v18") = vaddq_u8(v3, v4);
+	register uint8x16_t v19 __asm__("v19") = vaddq_u8(v4, v0);
+	register uint8x16_t v20 __asm__("v20") = veorq_u8(v15, v16);
+	register uint8x16_t v21 __asm__("v21") = veorq_u8(v16, v17);
+	register uint8x16_t v22 __asm__("v22") = veorq_u8(v17, v18);
+	register uint8x16_t v23 __asm__("v23") = veorq_u8(v18, v19);
+	register uint8x16_t v24 __asm__("v24") = veorq_u8(v19, v15);
+	register uint8x16_t v25 __asm__("v25") = vmvnq_u8(v20);
+	register uint8x16_t v26 __asm__("v26") = vmvnq_u8(v21);
+	register uint8x16_t v27 __asm__("v27") = vmvnq_u8(v22);
+	register uint8x16_t v28 __asm__("v28") = vmvnq_u8(v23);
+	register uint8x16_t v29 __asm__("v29") = vmvnq_u8(v24);
+	register uint8x16_t v30 __asm__("v30") = veorq_u8(v25, v26);
+	register uint8x16_t v31 __asm__("v31") = veorq_u8(v27, v28);
+
+#define SHUFFLE_REGS()	\
+do {			\
+	v31 = v0;	\
+	v30 = v1;	\
+	v29 = v2;	\
+	v28 = v3;	\
+	v27 = v4;	\
+	v26 = v5;	\
+	v25 = v6;	\
+	v24 = v7;	\
+	v23 = v8;	\
+	v22 = v9;	\
+	v21 = v10;	\
+	v20 = v11;	\
+	v19 = v12;	\
+	v18 = v13;	\
+	v17 = v14;	\
+	v16 = v15;	\
+	v15 = v16;	\
+	v14 = v17;	\
+	v13 = v18;	\
+	v12 = v19;	\
+	v11 = v20;	\
+	v10 = v21;	\
+	v9  = v22;	\
+	v8  = v23;	\
+	v7  = v24;	\
+	v6  = v25;	\
+	v5  = v26;	\
+	v4  = v27;	\
+	v3  = v28;	\
+	v2  = v29;	\
+	v1  = v30;	\
+	v0  = v31;	\
+} while (0);		\
+
+	SHUFFLE_REGS16();
+
+	stash128 = (__uint128_t)vaddvq_u8(veorq_u8(veorq_u8(v0, v2), veorq_u8(v4, v6))) |
+		   ((__uint128_t)vaddvq_u8(veorq_u8(veorq_u8(v8, v10), veorq_u8(v12, v14))) << 8) |
+		   ((__uint128_t)vaddvq_u8(veorq_u8(veorq_u8(v16, v18), veorq_u8(v20, v22))) << 16) |
+		   ((__uint128_t)vaddvq_u8(veorq_u8(veorq_u8(v24, v26), veorq_u8(v28, v30))) << 24);
+#undef SHUFFLE_REGS
+}
+
+#if defined(HAVE_ARM_NEON_CRYPTO)
+/*
+ *  SVE z0..z31 scalable vector register file exercise.
+ *  Compiled with a per-function target attribute (so no global
+ *  SVE -march is needed) and gated at run time by the HWCAP_SVE
+ *  bit; the stressor honestly runs this only on SVE hardware.
+ *  32 x VL-bit registers, the largest register file SRAM in an
+ *  SVE2-capable CPU.
+ */
+#define REGS_SVE_TARGET __attribute__((target("arch=armv9-a+sve2")))
+
+REGS_SVE_TARGET
+static void NOINLINE OPTIMIZE0 stress_regs_exercise_sve(stress_args_t *args, register uint64_t v)
+{
+	const svbool_t pg = svptrue_b64();
+	const svuint64_t zseed = svdup_u64(((uint64_t)v << 48) ^ ((uint64_t)v >> 48) ^
+					  0xa55a5aa5a55a5aa5ULL);
+	register svuint64_t z0  __asm__("z0")  = zseed;
+	register svuint64_t z1  __asm__("z1")  = sveor_u64_x(pg, zseed, svdup_u64(0x5555aaaa5555aaaaULL));
+	register svuint64_t z2  __asm__("z2")  = sveor_u64_x(pg, zseed, svdup_u64(0xaaaa5555aaaa5555ULL));
+	register svuint64_t z3  __asm__("z3")  = sveor_u64_x(pg, zseed, svdup_u64(0x3333cccc3333ccccULL));
+	register svuint64_t z4  __asm__("z4")  = sveor_u64_x(pg, zseed, svdup_u64(0xcccc3333cccc3333ULL));
+	register svuint64_t z5  __asm__("z5")  = sveor_u64_x(pg, z0, z1);
+	register svuint64_t z6  __asm__("z6")  = sveor_u64_x(pg, z1, z2);
+	register svuint64_t z7  __asm__("z7")  = sveor_u64_x(pg, z2, z3);
+	register svuint64_t z8  __asm__("z8")  = sveor_u64_x(pg, z3, z4);
+	register svuint64_t z9  __asm__("z9")  = sveor_u64_x(pg, z4, z0);
+	register svuint64_t z10 __asm__("z10") = svnot_u64_z(pg, z5);
+	register svuint64_t z11 __asm__("z11") = svnot_u64_z(pg, z6);
+	register svuint64_t z12 __asm__("z12") = svnot_u64_z(pg, z7);
+	register svuint64_t z13 __asm__("z13") = svnot_u64_z(pg, z8);
+	register svuint64_t z14 __asm__("z14") = svnot_u64_z(pg, z9);
+	register svuint64_t z15 __asm__("z15") = svadd_u64_x(pg, z0, z1);
+	register svuint64_t z16 __asm__("z16") = svadd_u64_x(pg, z1, z2);
+	register svuint64_t z17 __asm__("z17") = svadd_u64_x(pg, z2, z3);
+	register svuint64_t z18 __asm__("z18") = svadd_u64_x(pg, z3, z4);
+	register svuint64_t z19 __asm__("z19") = svadd_u64_x(pg, z4, z0);
+	register svuint64_t z20 __asm__("z20") = sveor_u64_x(pg, z15, z16);
+	register svuint64_t z21 __asm__("z21") = sveor_u64_x(pg, z16, z17);
+	register svuint64_t z22 __asm__("z22") = sveor_u64_x(pg, z17, z18);
+	register svuint64_t z23 __asm__("z23") = sveor_u64_x(pg, z18, z19);
+	register svuint64_t z24 __asm__("z24") = sveor_u64_x(pg, z19, z15);
+	register svuint64_t z25 __asm__("z25") = svnot_u64_z(pg, z20);
+	register svuint64_t z26 __asm__("z26") = svnot_u64_z(pg, z21);
+	register svuint64_t z27 __asm__("z27") = svnot_u64_z(pg, z22);
+	register svuint64_t z28 __asm__("z28") = svnot_u64_z(pg, z23);
+	register svuint64_t z29 __asm__("z29") = svnot_u64_z(pg, z24);
+	register svuint64_t z30 __asm__("z30") = sveor_u64_x(pg, z25, z26);
+	register svuint64_t z31 __asm__("z31") = sveor_u64_x(pg, z27, z28);
+
+#define SHUFFLE_REGS()	\
+do {			\
+	z31 = z0;	\
+	z30 = z1;	\
+	z29 = z2;	\
+	z28 = z3;	\
+	z27 = z4;	\
+	z26 = z5;	\
+	z25 = z6;	\
+	z24 = z7;	\
+	z23 = z8;	\
+	z22 = z9;	\
+	z21 = z10;	\
+	z20 = z11;	\
+	z19 = z12;	\
+	z18 = z13;	\
+	z17 = z14;	\
+	z16 = z15;	\
+	z15 = z16;	\
+	z14 = z17;	\
+	z13 = z18;	\
+	z12 = z19;	\
+	z11 = z20;	\
+	z10 = z21;	\
+	z9  = z22;	\
+	z8  = z23;	\
+	z7  = z24;	\
+	z6  = z25;	\
+	z5  = z26;	\
+	z4  = z27;	\
+	z3  = z28;	\
+	z2  = z29;	\
+	z1  = z30;	\
+	z0  = z31;	\
+} while (0);		\
+
+	SHUFFLE_REGS16();
+
+	stash64 = svaddv_u64(pg, sveor_u64_x(pg, sveor_u64_x(pg, z0, z2),
+						       sveor_u64_x(pg, z4, z6)));
+	stash64 ^= svaddv_u64(pg, sveor_u64_x(pg, sveor_u64_x(pg, z8, z10),
+						       sveor_u64_x(pg, z12, z14)));
+	stash64 ^= svaddv_u64(pg, sveor_u64_x(pg, sveor_u64_x(pg, z16, z18),
+						       sveor_u64_x(pg, z20, z22)));
+	stash64 ^= svaddv_u64(pg, sveor_u64_x(pg, sveor_u64_x(pg, z24, z26),
+						       sveor_u64_x(pg, z28, z30)));
+#undef SHUFFLE_REGS
+}
+
+/*
+ *  sve_supported()
+ *	run-time dynamic switch: HWCAP_SVE
+ */
+static bool sve_supported(void)
+{
+	return (getauxval(AT_HWCAP) & HWCAP_SVE) != 0;
+}
+#endif
+
 #endif
 
 #if defined(STRESS_ARCH_ARM) &&	\
