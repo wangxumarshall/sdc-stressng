@@ -185,6 +185,49 @@ static inline uint64_t rdtsc(void)
 	return (uint64_t)__ppc_get_timebase();
 }
 
+#elif defined(STRESS_ARCH_ARM) &&	\
+      defined(__aarch64__)
+
+/*
+ *  aarch64 virtual counter, CNTVCT_EL0.  Reading the generic
+ *  timer counter is architecturally available at EL0 on all
+ *  aarch64 implementations, so no run-time feature switch is
+ *  needed.  The counter read is not self-serialising, so use
+ *  the same ISB + read sequence the rdtscp path uses on x86
+ *  to order the reads.
+ */
+#define HAVE_STRESS_TSC_CAPABILITY
+
+static bool tsc_supported = true;
+
+static int stress_tsc_supported(const char *name)
+{
+	(void)name;
+
+	return 0;
+}
+
+/*
+ *  cntvct()
+ *	read the aarch64 virtual counter; the ISB before the
+ *	read serialises the instruction stream so the counter
+ *	value cannot be speculated ahead of earlier instructions
+ *	(mirrors the rdtscp fencing semantics).
+ */
+static inline uint64_t rdtsc(void)
+{
+	uint64_t val;
+
+	__asm__ __volatile__(
+		"isb\n"
+		"mrs %0, cntvct_el0\n"
+		: "=r" (val)
+		:
+		: "memory");
+
+	return val;
+}
+
 #elif defined(STRESS_ARCH_S390)
 
 #define HAVE_STRESS_TSC_CAPABILITY
@@ -639,6 +682,6 @@ const stressor_info_t stress_tsc_info = {
 	.verify = VERIFY_OPTIONAL,
 	.opts = opts,
 	.help = help,
-	.unimplemented_reason = "built without RISC-V rdtime, x86 rdtsc, s390 stck instructions or powerpc __ppc_get_timebase()",
+	.unimplemented_reason = "built without RISC-V rdtime, x86 rdtsc, aarch64 cntvct, s390 stck instructions or powerpc __ppc_get_timebase()",
 };
 #endif
