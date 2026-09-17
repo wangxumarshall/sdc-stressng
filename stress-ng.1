@@ -8589,8 +8589,10 @@ used (wrapped to keep in range of 1024 to 65535). The default port is port 50176
 .TQ
 .B \-\-rdrand N
 start N workers that read a random number from an on-chip random number generator
-This uses the rdrand instruction on Intel x86 processors or the darn instruction
-on PowerPC processors.
+This uses the rdrand instruction on Intel x86 processors, the darn instruction
+on PowerPC processors or the RNDR/RNDRRS registers (FEAT_RNG) on aarch64
+processors; the aarch64 path is gated by the run-time HWCAP2_RNG feature
+check and honestly skips on hardware without FEAT_RNG.
 .TP
 .B \-\-rdrand\-ops N
 stop rdrand stress workers after N bogo rdrand operations (1 bogo op \(eq 2048
