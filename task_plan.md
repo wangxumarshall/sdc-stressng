@@ -96,7 +96,9 @@ CP1（Kunpeng 950 7592C，2 socket / 95C×2T=190 物理核 / 382 逻辑 CPU / SV
 
 ## Next Step
 
-第七轮（2026-09-17）**全部 12 patch 实施完成**：11 commits 已推 port/arm64-saturation-sdc 分支（d9381762c..df6f448b3）。本机全功能验证 + QEMU 用户态仿真（-cpu max）SVE/SVE2/SM3/SM4/SHA3/RNDR 模拟验证全通过。SVE 动态开关（HWCAP 运行时 + target 属性编译隔离）贯穿全部新代码。待目标机（Kunpeng 950）真机回归。
+第七轮（2026-09-17）**全部 12 patch 实施完成**：11 commits 已推 port/arm64-saturation-sdc 分支（d9381762c..df6f448b3）。本机全功能验证 + QEMU 用户态仿真（-cpu max）SVE/SVE2/SM3/SM4/SHA3/RNDR 模拟验证全通过。SVE 动态开关（HWCAP 运行时 + target 属性编译隔离）贯穿全部新代码。
+
+**真机验证方案已产出**：`docs/superpowers/plans/2026-09-17-kunpeng950-real-machine-verification.md`（commit f87464509）——V1-V10 十项验证目标（逐项标注"为什么只能真机"+ 验收判据）、阶段 0 取证、双构建 A/B 策略、SDC 协同漏斗、结果模板、停机取证条件、风险回退。方案中全部 13 条命令/旗标已在本机二进制上逐条 parse-verified。下一步：CP1 真机执行并回填结果。
 
 ### Phase 7: 对标 x86、强化 ARM64 饱和压测研究（2026-09-16 第六轮） — complete
 - [x] R1 x86 专属能力基线盘点（smi/rdrand/x86cpuid/tsc/ipsec-mb 完整 stressor + target_clones/regs/vnni/cache 方法级 + rapl/ignite-cpu 框架级；报告 docs/superpowers/research/2026-09-16-r1-x86-baseline-inventory.md）
