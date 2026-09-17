@@ -252,14 +252,22 @@ static const stress_fma_func_t stress_fma_funcs[] = {
  */
 #if defined(STRESS_ARCH_ARM) &&	\
     defined(__aarch64__) &&	\
-    defined(HAVE_ARM_NEON_CRYPTO)
+    defined(HAVE_ARM_NEON_CRYPTO) && \
+    defined(__GNUC__) && (__GNUC__ >= 10)
+/*
+ *  The target attribute uses the armv8.2-a base rather than armv9-a:
+ *  the +sve2 modifiers are accepted on armv8.x bases from GCC 10,
+ *  while the armv9-a architecture name needs GCC 11+ (GCC 10.3, the
+ *  openEuler 22.03 toolchain, rejects it).  Older toolchains fall
+ *  back to the NEON-only kernels below.
+ */
 #define HAVE_FMA_SVE2
 
 #include <arm_sve.h>
 #include <sys/auxv.h>
 #include <asm/hwcap.h>
 
-#define FMA_SVE2_TARGET __attribute__((target("arch=armv9-a+sve2")))
+#define FMA_SVE2_TARGET __attribute__((target("arch=armv8.2-a+sve2")))
 
 #define FMA_SVE2_KERNEL_D(name, acc)					\
 FMA_SVE2_TARGET								\
