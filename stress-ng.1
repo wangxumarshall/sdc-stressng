@@ -10155,13 +10155,23 @@ stop context switching workers after N bogo operations.
 .TQ
 .B \-\-sve2 N
 start N workers exercising the SVE2 vector datapaths. Each round performs
-64 iterations of predicated svmla (fused multiply\-add) on a 256 element
-double vector and 64 iterations of svbext (SVE2 bit extract, where the
-sve2\-bitperm extension is available), then compares every element against
-a scalar golden reference implementation. A mismatch is reported with the
-element index, the expected and actual bit patterns and the number of
-flipped bits, so this stressor doubles as a silent data corruption (SDC)
-detector for the SVE2 pipelines. Verification is always enabled.
+64 iterations of the selected method over a 256 element vector, then
+compares every element against a scalar golden reference implementation.
+A mismatch is reported with the element index, the expected and actual
+bit patterns and the number of flipped bits, so this stressor doubles as
+a silent data corruption (SDC) detector for the SVE2 pipelines.
+Verification is always enabled.
+.TP
+.B \-\-sve2\-method M
+select the SVE2 datapath method: fmla (predicated fused multiply\-add),
+gather (LD1D vector\-indexed gather loads, the heaviest load\-store unit
+pattern SVE provides), fcmla (complex multiply\-accumulate with 90 degree
+rotation, one FCMLA replaces four scalar FMAs plus shuffles), bitperm
+(SVE2 bit extract, where the sve2\-bitperm extension is available) or
+bfdot (bf16 dot product accumulate fed by BFCVT conversion, where the
+bf16 extension is available). The default, all, runs every method the
+hardware supports. Each method is processed in vector\-length chunks with
+whilelt predication so any SVE vector length is handled correctly.
 .TP
 .B \-\-sve2\-ops N
 stop after N sve2 bogo operations.

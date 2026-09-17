@@ -1609,6 +1609,7 @@ const struct option stress_long_options[] = {
 	{ "swap-self",		0,	NULL,	OPT_swap_self },
 
 	{ "sve2",		1,	NULL,	OPT_sve2 },
+	{ "sve2-method",	1,	NULL,	OPT_sve2_method },
 	{ "sve2-ops",		1,	NULL,	OPT_sve2_ops },
 
 	{ "switch",		1,	NULL,	OPT_switch },

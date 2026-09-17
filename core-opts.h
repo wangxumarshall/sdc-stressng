@@ -1630,6 +1630,7 @@ typedef enum {
 	OPT_swap_self,
 
 	OPT_sve2,
+	OPT_sve2_method,
 	OPT_sve2_ops,
 
 	OPT_switch_freq,
