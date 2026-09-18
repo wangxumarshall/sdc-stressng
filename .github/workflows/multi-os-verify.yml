@@ -203,13 +203,77 @@ jobs:
           ./scripts/ci-verify-log.sh smoke.log smoke "$rc"
 
       # ---------------------------------------------------------------
+      # Full-parameter method sweep: every <name>-method option with the
+      # 'all' keyword (or enumerated choices when 'all' is absent).
+      # Runs BEFORE the full suite: the sweep leaves the container in
+      # a healthy state, while the full --sequential suite exhausts it
+      # (see the comment on that step).
+      # ---------------------------------------------------------------
+      - name: Method sweep (all *-method options)
+        if: github.event.inputs.run_full_suite != 'false'
+        run: |
+          set -x
+          ./scripts/ci-method-sweep.sh ./stress-ng 4 "methods-${TAG_SAFE}.log"
+
+      # ---------------------------------------------------------------
+      # Benchmark sample: fixed-work stressors, yaml output for the
+      # cross-OS comparison job. Short by design — this is a trend
+      # comparison across images, not a performance certification.
+      # Also runs before the full suite for the same reason as the
+      # method sweep.
+      # ---------------------------------------------------------------
+      - name: Benchmark sample
+        run: |
+          set -x
+          ./stress-ng --cpu 4 --cpu-method matrixprod \
+              --fma 4 --memcpy 2 --memrate 2 --memrate-method write64zva \
+              --stream 2 --verify --timeout 20 \
+              --metrics-brief -Y "bench-${TAG_SAFE}.yaml" > "bench-${TAG_SAFE}.log" 2>&1
+          rc=$?
+          tail -4 "bench-${TAG_SAFE}.log"
+          ./scripts/ci-verify-log.sh "bench-${TAG_SAFE}.log" "bench-${TAG_SAFE}" "$rc"
+
+      # Upload everything produced so far while the container is still
+      # healthy: the full suite below can leave the container runtime
+      # unable to start new processes (OCI 'procReady not received'),
+      # which also kills any in-container artifact upload that follows.
+      - name: Upload binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: stress-ng-${{ env.TAG_SAFE }}
+          path: stress-ng
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload interim test reports
+        uses: actions/upload-artifact@v7
+        with:
+          name: reports-${{ env.TAG_SAFE }}
+          path: |
+            buildinfo.txt
+            build.log
+            smoke.log
+            methods-${TAG_SAFE}.log
+            bench-${TAG_SAFE}.log
+            bench-${TAG_SAFE}.yaml
+          retention-days: 30
+          if-no-files-found: warn
+
+      # ---------------------------------------------------------------
       # Full-suite functional run: every stressor, one by one.
       # --sequential N runs all stressors sequentially (man stress-ng.1),
       # --verify turns on per-stressor self-checks where implemented,
-      # --exclude drops the 5 pathological stressors that are disabled
-      # by default anyway (kept explicit for log clarity).
+      # --exclude drops stressors that cannot work on GitHub runner
+      # containers (details inline below).
       # Local reference (24.03 SP3, aarch64): 319 passed / 74 skipped /
       # 0 failed / ~16min at --timeout 2.
+      #
+      # This step runs LAST on purpose: ~390 short-lived process trees
+      # on a pids-limited 4-core container reliably leave the runner's
+      # OCI runtime unable to exec anything ('procReady not received',
+      # exit 128) for a while after the sweep. Every step that still
+      # needs the container (uploads) has already run by then; this
+      # step's own log analysis uses only bash builtins.
       # ---------------------------------------------------------------
       - name: Full functional suite (--sequential)
         if: github.event.inputs.run_full_suite != 'false'
@@ -236,77 +300,22 @@ jobs:
               -Y "seq-${TAG_SAFE}.yaml" > "seq-${TAG_SAFE}.log" 2>&1
           rc=$?
           set -e
-          tail -5 "seq-${TAG_SAFE}.log"
           ./scripts/ci-verify-log.sh "seq-${TAG_SAFE}.log" "seq-${TAG_SAFE}" "$rc"
 
-      # The sequential sweep leaves reaped-late worker processes that
-      # can pin the container pids limit for a while (observed: 'fork:
-      # Resource temporarily unavailable' right after the run — even
-      # 'ps' or 'head' in this step failed with exit 128 on the
-      # runner). Only shell builtins here: wait for the reaper, no
-      # subcommands at all.
-      - name: Post-suite settle
-        if: github.event.inputs.run_full_suite != 'false'
-        run: sleep 15
-
-      # ---------------------------------------------------------------
-      # Full-parameter method sweep: every <name>-method option with the
-      # 'all' keyword (or enumerated choices when 'all' is absent).
-      # ---------------------------------------------------------------
-      - name: Method sweep (all *-method options)
-        if: github.event.inputs.run_full_suite != 'false'
-        run: |
-          set -x
-          ./scripts/ci-method-sweep.sh ./stress-ng 4 "methods-${TAG_SAFE}.log"
-
-      # ---------------------------------------------------------------
-      # Benchmark sample: fixed-work stressors, yaml output for the
-      # cross-OS comparison job. Short by design — this is a trend
-      # comparison across images, not a performance certification.
-      # ---------------------------------------------------------------
-      - name: Benchmark sample
-        run: |
-          set -x
-          ./stress-ng --cpu 4 --cpu-method matrixprod \
-              --fma 4 --memcpy 2 --memrate 2 --memrate-method write64zva \
-              --stream 2 --verify --timeout 20 \
-              --metrics-brief -Y "bench-${TAG_SAFE}.yaml" > "bench-${TAG_SAFE}.log" 2>&1
-          rc=$?
-          tail -4 "bench-${TAG_SAFE}.log"
-          ./scripts/ci-verify-log.sh "bench-${TAG_SAFE}.log" "bench-${TAG_SAFE}" "$rc"
-
-      - name: Upload test reports
-        if: always()
+      # Best-effort upload of the full-suite log; may fail on an
+      # exhausted container, in which case the summary annotation
+      # above still carries the verdict.
+      - name: Upload full-suite log
+        if: always() && github.event.inputs.run_full_suite != 'false'
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
-          name: reports-${{ env.TAG_SAFE }}
+          name: seq-report-${{ env.TAG_SAFE }}
           path: |
-            buildinfo.txt
-            build.log
-            smoke.log
             seq-${TAG_SAFE}.log
             seq-${TAG_SAFE}.yaml
-            methods-${TAG_SAFE}.log
-            bench-${TAG_SAFE}.log
-            bench-${TAG_SAFE}.yaml
           retention-days: 30
           if-no-files-found: warn
-
-      # ---------------------------------------------------------------
-      # Optional (manual dispatch only): the built binary is published
-      # to ghcr.io/wangxumarshall/sdc-stressng — the renamed successor
-      # of the historical 'opendcdiag-arm' package. Image assembly and
-      # push happen in the 'publish-image' job on a plain VM runner,
-      # because container jobs have no Docker daemon.
-      # ---------------------------------------------------------------
-
-      - name: Upload binary
-        uses: actions/upload-artifact@v7
-        with:
-          name: stress-ng-${{ env.TAG_SAFE }}
-          path: stress-ng
-          retention-days: 30
-          if-no-files-found: error
 
   # ------------------------------------------------------------------
   # Job 3/5: cross-OS benchmark comparison.
