@@ -142,7 +142,11 @@ jobs:
           # image; optional libs pull more stressors into the build
           # (judy, mpfr, xxhash, ...). Missing libs are not fatal — the
           # build config adapts (Makefile.config probes).
-          dnf install -y --setopt=install_weak_deps=False --skip-broken \
+          # --nogpgcheck: the CDN serving the old 20.03 repos hosts
+          # unsigned RPMs (e.g. zlib-devel-1.2.11-17.oe1) and the
+          # default gpgcheck=1 aborts the whole install; CI only needs
+          # a build toolchain here, not authenticated packages.
+          dnf install -y --setopt=install_weak_deps=False --skip-broken --nogpgcheck \
               tar gzip git make gcc gcc-c++ \
               judy-devel mpfr-devel xxhash-devel \
               libaio-devel libcap-devel keyutils-libs-devel \
