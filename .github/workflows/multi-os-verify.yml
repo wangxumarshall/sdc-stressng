@@ -171,31 +171,24 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ---------------------------------------------------------------
-      # Build with UBSan (SANITIZE=1) where the toolchain supports it.
-      # The Makefile probes each sanitizer flag via cc_supports_flag, so
-      # gcc 7.3 (20.03) silently drops checks gcc 12 (24.03) has.
-      # Some images ship a broken libubsan symlink (seen on a local
-      # openEuler 24.03 SP3 box: gcc's libubsan.so -> missing
-      # /usr/lib64/libubsan.so.1.0.0), so the compile probe passes but
-      # the link fails — fall back to a plain build and say so loudly
-      # rather than failing the image's whole run.
+      # Build. The default is a plain -O2 build for all functional
+      # steps below. Run-14 data showed the UBSan build is a trap on
+      # this workload: the only image that linked it (24.03-lts-sp4)
+      # hung inside the sequential suite for 5h42m until the job
+      # timeout — sanitizer instrumentation makes a suite of ~390
+      # x per-stressor timeouts effectively unbounded on a 4-core
+      # shared runner. UBSan also found only one benign runtime
+      # warning (cpu float-conversion, ~8.7% slower smoke rate), not
+      # worth 6 hours of CI per image. SANITIZE=1 remains available
+      # for targeted local debugging.
       # ---------------------------------------------------------------
-      - name: Build (UBSan, fallback to plain)
+      - name: Build
         run: |
           set -x
-          if make -j"$(nproc)" SANITIZE=1 > build.log 2>&1; then
-            echo "BUILD_MODE=sanitize-ubsan" >> "$GITHUB_ENV"
-          else
-            echo "::warning::SANITIZE=1 build failed — falling back to plain build"
-            tail -5 build.log
-            make clean > /dev/null 2>&1
-            make -j"$(nproc)" > build.log 2>&1 || {
-              tail -40 build.log; exit 1; }
-            echo "BUILD_MODE=plain" >> "$GITHUB_ENV"
-          fi
+          make -j"$(nproc)" > build.log 2>&1 || {
+            tail -40 build.log; exit 1; }
           ./stress-ng --version
           ./stress-ng --buildinfo | tee buildinfo.txt
-          echo "build mode: $BUILD_MODE" | tee -a buildinfo.txt
 
       # ---------------------------------------------------------------
       # Smoke: quick sanity before the long runs (asserts on the real
@@ -258,13 +251,16 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: reports-${{ env.TAG_SAFE }}
+          # NOTE: ${{ }} expressions expand here; shell-style ${TAG_SAFE}
+          # inside with: blocks does NOT — run-14 uploads silently
+          # dropped every tag-suffixed file this way
           path: |
             buildinfo.txt
             build.log
             smoke.log
-            methods-${TAG_SAFE}.log
-            bench-${TAG_SAFE}.log
-            bench-${TAG_SAFE}.yaml
+            methods-${{ env.TAG_SAFE }}.log
+            bench-${{ env.TAG_SAFE }}.log
+            bench-${{ env.TAG_SAFE }}.yaml
           retention-days: 30
           if-no-files-found: warn
 
@@ -303,7 +299,13 @@ jobs:
           #     v2 hierarchy; verified fine locally
           # A clean 4-core environment completes the full suite in
           # ~13min (measured with taskset -c 0-3 on a dev box).
-          ./stress-ng --sequential 1 --timeout "$SEQ_TIMEOUT" --verify \
+          # Wall-clock guard: even on a healthy runner the suite is
+          # ~12min, on a contended one 30-60min. 90min 'timeout' keeps
+          # a pathological runner window from eating the whole job
+          # budget; the fork-free log classifier still grades whatever
+          # portion of the log completed (missing summary -> clear
+          # error, no silent hang).
+          timeout 90m ./stress-ng --sequential 1 --timeout "$SEQ_TIMEOUT" --verify \
               --metrics-brief --skip-silent \
               --exclude bad-ioctl,mlockmany,oom-pipe,sysinval,watchdog,numacopy,shm,wait,cgroup \
               -Y "seq-${TAG_SAFE}.yaml" > "seq-${TAG_SAFE}.log" 2>&1
@@ -321,8 +323,8 @@ jobs:
         with:
           name: seq-report-${{ env.TAG_SAFE }}
           path: |
-            seq-${TAG_SAFE}.log
-            seq-${TAG_SAFE}.yaml
+            seq-${{ env.TAG_SAFE }}.log
+            seq-${{ env.TAG_SAFE }}.yaml
           retention-days: 30
           if-no-files-found: warn
 
