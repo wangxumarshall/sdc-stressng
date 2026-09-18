@@ -1923,13 +1923,18 @@ do {			\
     defined(__aarch64__)
 
 #include <arm_neon.h>
+#if defined(__GNUC__) && (__GNUC__ >= 10)
+/* <arm_sve.h> ships with GCC 8+, the +sve2 target attribute with
+ * GCC 10; guard both together for the SVE exercise path below */
 #include <arm_sve.h>
+#define HAVE_REGS_SVE
+#endif
 #include <sys/auxv.h>
 #include <asm/hwcap.h>
 
 static void NOINLINE OPTIMIZE0 stress_regs_exercise_neon(stress_args_t *args, register uint64_t v);
 #if defined(HAVE_ARM_NEON_CRYPTO) &&	\
-    defined(__GNUC__) && (__GNUC__ >= 10)
+    defined(HAVE_REGS_SVE)
 static void NOINLINE OPTIMIZE0 stress_regs_exercise_sve(stress_args_t *args, register uint64_t v);
 static bool sve_supported(void);
 #endif
@@ -2143,7 +2148,7 @@ do {			\
 
 	stress_regs_exercise_neon(args, v);
 #if defined(HAVE_ARM_NEON_CRYPTO) &&	\
-    defined(__GNUC__) && (__GNUC__ >= 10)
+    defined(HAVE_REGS_SVE)
 	if (LIKELY(sve_supported()))
 		stress_regs_exercise_sve(args, v);
 #endif
@@ -2238,7 +2243,7 @@ do {			\
 }
 
 #if defined(HAVE_ARM_NEON_CRYPTO) &&	\
-    defined(__GNUC__) && (__GNUC__ >= 10)
+    defined(HAVE_REGS_SVE)
 /*
  *  SVE z0..z31 scalable vector register file exercise.
  *  Compiled with a per-function target attribute (so no global

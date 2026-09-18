@@ -92,7 +92,13 @@ static const stress_help_t help[] = {
 #include <sys/auxv.h>
 #include <asm/hwcap.h>
 #include <arm_neon.h>
+#if defined(__GNUC__) && (__GNUC__ >= 10)
+/* <arm_sve.h> ships with GCC 8+; the SVE2 method block below
+ * additionally requires the GCC 10+ +sve2 target-attribute support */
 #include <arm_sve.h>
+#define HAVE_ARMCRYPTO_SVE2
+#define SVE2_TARGET __attribute__((target("arch=armv8.2-a+sve2+sve2-aes+sve2-sm4+sve2-sha3")))
+#endif
 
 static bool armcrypto_all_okay = true;
 
@@ -250,21 +256,6 @@ static bool capable_sha3(void)		{ return CAPABLE(HWCAP_SHA3, 0); }
 static bool capable_sm3(void)		{ return CAPABLE(HWCAP_SM3, 0); }
 static bool capable_sm4(void)		{ return CAPABLE(HWCAP_SM4, 0); }
 static bool capable_pmull(void)		{ return CAPABLE(HWCAP_PMULL, 0); }
-/*
- *  SVE2 crypto methods need a toolchain that understands the +sve2
- *  feature modifiers in the target attribute (GCC 10+).  The arch
- *  strings use the armv8.2-a base rather than armv9-a: the +sve2
- *  modifiers have been accepted on armv8.x bases since GCC 10,
- *  whereas the armv9-a architecture name is only understood by
- *  GCC 11+ (GCC 10.3, the openEuler 22.03 toolchain, rejects it).
- *  The SVE2 crypto instructions are emitted via .inst encodings, so
- *  nothing depends on the arch string beyond enabling the SVE
- *  register constraints and <arm_sve.h> types.
- */
-#if defined(__GNUC__) && (__GNUC__ >= 10)
-#define HAVE_ARMCRYPTO_SVE2
-#define SVE2_TARGET __attribute__((target("arch=armv8.2-a+sve2+sve2-aes+sve2-sm4+sve2-sha3")))
-#endif
 #if defined(HAVE_ARMCRYPTO_SVE2)
 static bool capable_sve2_aes(void)	{ return CAPABLE(0, HWCAP2_SVEAES); }
 static bool capable_sve2_pmull(void)	{ return CAPABLE(0, HWCAP2_SVEPMULL); }
