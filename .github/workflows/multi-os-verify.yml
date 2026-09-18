@@ -120,18 +120,15 @@ jobs:
       # (verified 2026-09-18 for all 15 tags). The 20.03 images' dnf
       # works out of the box.
 
-      # Dependency cache: keyed on the image tag (each tag has its own
-      # repo layout and RPM versions, so caches never cross tags).
-      # Restores dnf's download/RPM cache, saving the metadata refresh
-      # and package downloads on every run after the first.
-      - name: dnf cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            /var/cache/dnf
-            /var/lib/dnf
-          key: dnf-${{ matrix.image_tag }}-v2
-          restore-keys: dnf-${{ matrix.image_tag }}-
+      # NOTE on caching: actions/cache's post step (cache save) runs
+      # AFTER the full --sequential suite, in a container whose OCI
+      # runtime that suite has exhausted — it fails with exit 128 and
+      # poisons the job conclusion (same as the checkout post step
+      # removed earlier, run 35314416212: all 12 failures were 'Post
+      # dnf cache' alone with every functional step green). Manual
+      # dnf keepcache has no way to survive the fresh container per
+      # job either, so dependency caching is dropped for now; the
+      # cost is ~1-2min of dnf metadata refresh per job.
 
       - name: Install build dependencies
         run: |
