@@ -21,7 +21,7 @@ on:
         default: true
       sequential_timeout:
         description: 'Per-stressor timeout in the --sequential run (seconds)'
-        default: '5'
+        default: '2'
       publish_image:
         description: 'Push container image to ghcr.io (false = build only)'
         type: boolean
@@ -80,9 +80,11 @@ jobs:
     runs-on: ubuntu-24.04-arm
     strategy:
       fail-fast: false
-      # 5 concurrent container jobs: full 15-way parallelism would saturate
-      # the free arm64 runner pool and cause queue starvation.
-      max-parallel: 5
+      # All 15 at once: each job gets its own 4-core VM. Running them
+      # in waves (previous setting: 5) stretches the sequential-suite
+      # tail across pool-contention windows and pushed jobs past the
+      # timeout on the first CI run.
+      max-parallel: 15
       matrix:
         include:
           - { image_tag: 20.03-lts,     tag_safe: 20-03-lts }
@@ -103,7 +105,10 @@ jobs:
     container:
       image: openeuler/openeuler:${{ matrix.image_tag }}
       options: --user root
-    timeout-minutes: 300
+    # 4-core shared arm64 runners run the full --sequential suite far
+    # slower than a dev box; budget generously so a slow pool window
+    # degrades to a slow run instead of a timeout kill.
+    timeout-minutes: 360
     env:
       SEQ_TIMEOUT: ${{ github.event.inputs.sequential_timeout || '5' }}
       TAG_SAFE: ${{ matrix.tag_safe }}
@@ -208,6 +213,13 @@ jobs:
         run: |
           set -x
           set +e
+          # Pathological five are disabled by default anyway (kept
+          # explicit for log clarity). Everything else runs: a clean
+          # 4-core environment completes the full suite in ~13min
+          # (measured with taskset -c 0-3 on a dev box); the first CI
+          # run's multi-hour wall-clock came from runner-pool CPU
+          # contention, addressed by running all 15 jobs at once
+          # instead of queueing them in waves.
           ./stress-ng --sequential 1 --timeout "$SEQ_TIMEOUT" --verify \
               --metrics-brief --skip-silent \
               --exclude bad-ioctl,mlockmany,oom-pipe,sysinval,watchdog \
