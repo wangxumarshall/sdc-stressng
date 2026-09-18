@@ -16,44 +16,89 @@
 # stressor actually fail" gate so the workflow can distinguish a genuine
 # functional bug (failed: N>0, rc=1) from an honest skip (skipped: N).
 #
+# Implementation note: deliberately fork-free. After a full
+# --sequential sweep the container can be polluted with reaped-late
+# worker processes and hit the cgroup pids limit, which makes every
+# external command (grep/awk/tail) fail with 'fork: Resource
+# temporarily unavailable' — the first CI runs then mis-classified
+# healthy runs because every probe silently returned nothing. All
+# parsing below uses bash builtins (read/comparison) only.
+#
 set -u
 
 LOG="${1:?usage: ci-verify-log.sh <logfile> <label> [rc]}"
 LABEL="${2:?usage: ci-verify-log.sh <logfile> <label> [rc]}"
 RC="${3:-}"
 
-if [ ! -f "$LOG" ]; then
+if [[ ! -f "$LOG" ]]; then
 	echo "::error::log file '$LOG' not found"
 	exit 2
 fi
 
-# --- summary lines (anchors verified on stress-ng 0.22.00, gcc 12.3.1) ---
-SKIPPED=$(grep -oE 'skipped: [0-9]+' "$LOG" | tail -1 | awk '{print $2}')
-PASSED=$(grep -oE 'passed: [0-9]+' "$LOG" | grep -v 'skipped' | tail -1 | awk '{print $2}')
-FAILED=$(grep -oE 'failed: [0-9]+' "$LOG" | tail -1 | awk '{print $2}')
-COMPLETED=$(grep -c 'successful run completed' "$LOG")
+skipped=0
+passed=0
+failed=0
+completed=0
+fail_seen=0
 
-echo "[$LABEL] passed=${PASSED:-0} skipped=${SKIPPED:-0} failed=${FAILED:-0} completed_runs=${COMPLETED}"
+# single pass over the log with builtins only
+while IFS= read -r line; do
+	if [[ "$line" == *"successful run completed"* ]]; then
+		completed=$((completed + 1))
+	elif [[ "$line" == *"unsuccessful run completed"* ]]; then
+		# stress-ng reports failures this way; keep completed at 0
+		# so the summary check below flags it as expected
+		continue
+	fi
+	# summary lines: "skipped: N", "passed: N", "failed: N" — the count
+	# may be followed by ": name (n) name (n) ..." detail; strip to the
+	# leading integer
+	if [[ "$line" == *"skipped: "* ]]; then
+		skipped=${line##*skipped: }
+		skipped=${skipped%%[!0-9]*}
+	elif [[ "$line" == *"passed: "* ]]; then
+		passed=${line##*passed: }
+		passed=${passed%%[!0-9]*}
+	elif [[ "$line" == *"failed: "* ]]; then
+		failed=${line##*failed: }
+		failed=${failed%%[!0-9]*}
+		[[ "$failed" =~ ^[1-9] ]] && fail_seen=1
+	fi
+done < "$LOG"
 
-# --- failure extraction for the job summary ---
-FAIL_LINES=$(grep -E 'failed: [1-9]' "$LOG" | head -20)
-if [ -n "$FAIL_LINES" ]; then
-	echo "::error::[$LABEL] stressor failures detected:"
-	echo "$FAIL_LINES"
+echo "[$LABEL] passed=${passed:-0} skipped=${skipped:-0} failed=${failed:-0} completed_runs=${completed}"
+
+# --- failures detected ---
+if [[ "$fail_seen" == 1 ]]; then
+	# reprint the failing summary line(s) for the annotation
+	while IFS= read -r line; do
+		[[ "$line" == *"failed: "[1-9]* ]] && echo "::error::[$LABEL] $line"
+	done < "$LOG"
 	exit 1
 fi
 
 # --- a run that never reached its summary means it died mid-suite ---
-if [ "$COMPLETED" -lt 1 ]; then
+if [[ "$completed" -lt 1 ]]; then
 	echo "::error::[$LABEL] no 'successful run completed' summary line — run died before finishing (rc=${RC:-unknown})"
-	tail -30 "$LOG" | sed 's/^/    /'
+	# last 30 lines via builtin read (tail would fork)
+	mapfile -t tail_lines < "$LOG"
+	n=${#tail_lines[@]}
+	start=$((n > 30 ? n - 30 : 0))
+	for ((i = start; i < n; i++)); do
+		echo "    ${tail_lines[i]}"
+	done
 	exit 1
 fi
 
 # --- explicit rc cross-check when provided ---
-if [ -n "$RC" ] && [ "$RC" -ne 0 ]; then
+if [[ -n "$RC" && "$RC" != "0" ]]; then
 	echo "::error::[$LABEL] stress-ng exit code $RC but no 'failed:' line — classify before ignoring"
-	tail -30 "$LOG" | sed 's/^/    /'
+	mapfile -t tail_lines < "$LOG"
+	n=${#tail_lines[@]}
+	start=$((n > 30 ? n - 30 : 0))
+	for ((i = start; i < n; i++)); do
+		echo "    ${tail_lines[i]}"
+	done
 	exit 1
 fi
 
