@@ -136,30 +136,42 @@ jobs:
       - name: Install build dependencies
         run: |
           set -x
-          # tar/gzip/git are needed by actions/checkout (the REST-API
-          # fallback path extracts the archive with tar — the 20.03
-          # base image ships without it). gcc/make ship with the base
-          # image; optional libs pull more stressors into the build
-          # (judy, mpfr, xxhash, ...). Missing libs are not fatal — the
-          # build config adapts (Makefile.config probes).
+          # tar/gzip are needed by the tarball checkout below (the
+          # 20.03 base image ships without tar; curl ships with every
+          # openEuler base image). gcc/make ship with the base image;
+          # optional libs pull more stressors into the build (judy,
+          # mpfr, xxhash, ...). Missing libs are not fatal — the build
+          # config adapts (Makefile.config probes).
           # --nogpgcheck: the CDN serving the old 20.03 repos hosts
           # unsigned RPMs (e.g. zlib-devel-1.2.11-17.oe1) and the
           # default gpgcheck=1 aborts the whole install; CI only needs
           # a build toolchain here, not authenticated packages.
           dnf install -y --setopt=install_weak_deps=False --skip-broken --nogpgcheck \
-              tar gzip git make gcc gcc-c++ \
+              tar gzip make gcc gcc-c++ \
               judy-devel mpfr-devel xxhash-devel \
               libaio-devel libcap-devel keyutils-libs-devel \
               bzip2-devel zlib-devel 2>&1 | tail -5 || true
           command -v tar || { echo "::error::tar still missing — checkout cannot proceed"; exit 1; }
 
-      - uses: actions/checkout@v7
-        with:
-          # nothing downstream needs the stored credentials, and the
-          # post-step 'git config --unset' has failed with exit 128 on
-          # runners where the pids limit was still saturated by worker
-          # reaping after the suite — a no-op post step cannot fail
-          persist-credentials: false
+      # Check out via the REST tarball instead of actions/checkout.
+      # The full --sequential suite at the end of this job exhausts
+      # the container's OCI runtime ('procReady not received'), and
+      # actions/checkout's post step (orphan-process cleanup) then
+      # fails and poisons the job conclusion even though every real
+      # step succeeded — all 14 matrix 'failures' in run 35311998836
+      # were exactly this, with every functional step green. A plain
+      # tar extraction has no post step to fail.
+      - name: Checkout (tarball)
+        run: |
+          set -eux
+          curl -fsSL --retry 3 \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -o /tmp/src.tar.gz \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/tarball/${GITHUB_SHA}"
+          tar -xzf /tmp/src.tar.gz --strip-components=1
+          ls scripts/ci-verify-log.sh Makefile stress-ng.c
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ---------------------------------------------------------------
       # Build with UBSan (SANITIZE=1) where the toolchain supports it.
