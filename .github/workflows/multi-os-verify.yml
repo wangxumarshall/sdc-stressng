@@ -236,14 +236,15 @@ jobs:
       # The sequential sweep leaves reaped-late worker processes that
       # can pin the container pids limit for a while (observed: 'fork:
       # Resource temporarily unavailable' right after the run). Give
-      # the reaper a moment and sweep orphans away before the next
-      # fork-heavy steps.
+      # the reaper a moment before the next fork-heavy steps. Zombies
+      # cannot be killed (they need their parent to reap them) — do
+      # not try; just wait and report.
       - name: Post-suite process cleanup
         if: github.event.inputs.run_full_suite != 'false'
         run: |
-          sleep 10
-          ps aux 2>/dev/null | awk '$8 ~ /Z/ {print $2}' | xargs -r kill -9 2>/dev/null || true
-          echo "remaining processes: $(ps 2>/dev/null | wc -l)"
+          sleep 15
+          { ps aux 2>/dev/null || true; } | head -40 || true
+          echo "cleanup done"
 
       # ---------------------------------------------------------------
       # Full-parameter method sweep: every <name>-method option with the
