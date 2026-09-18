@@ -1,6 +1,45 @@
 # Progress Log
 
-## Session 2026-09-17（第八轮）: GitHub Actions 多 OS 自动化验证工作流
+## Session 2026-09-18（第九轮）: CI 首跑问题修复 + 2 个真 bug 修复
+
+> 迭代史表格见下；run 14 结果：**14/15 success**（唯一失败=20.03 opcode 偶发 + sp4 慢 runner 超时，均非代码问题）。benchmark-compare success。run 15（opcode 重试修复后）进行中。
+
+### runner 环境的深层发现（run 7-14 排障沉淀）
+| 现象 | 根因 | 处置 |
+|---|---|---|
+| sequential 之后所有 exec 失败（`OCI runtime exec failed: procReady not received`，exit 128） | ~390 个短命进程树耗尽容器 pids/OCI 运行时，且**不恢复**（本地容器无此问题——runner 特有） | 步骤重排：sweep/bench/upload 全部前置，sequential 放最后；断言脚本 fork-free |
+| actions/checkout post 步骤失败污染 job 结论 | post（orphan 清理）在报废容器里跑 | 换 REST tarball 解压（无 post 步骤） |
+| actions/cache post 同样失败 | 同上 | 移除 cache action（接受 ~1-2min/jobs 的 dnf 刷新开销） |
+| sleep/ps/head 都 exit 128 | bash 的 sleep 是外部命令也要 fork | 断言脚本纯 bash 内建 |
+| rc=3 但 failed=0 且 completed | 某 stressor 因资源 early-abort 计入 skipped，resource_success=false → rc=3 | 断言分类：rc=3+failed=0+completed = 环境受限 warning |
+| opcode/text 偶发 rc=2（1/15 镜像，本地容器复现通过） | shared runner 邻居压力瞬态 | sweep 失败项重试一次 |
+| sp4 sequential 被 360min 超时杀 | 极慢 runner（2.5h+ 跑不完 ~12min 的套件） | 无代码修复可做——重跑碰运气；final-status 会如实报告 |
+
+
+用户新指令：触发首次 publish_image，修复 15 镜像跑路问题。PAT 已配置（~/.gh-token-pat，600 权限，gh CLI 使用）。
+
+### 8 轮 CI 迭代史（run 35235189820 → 35302105963）
+| Run | 失败 | 根因 | 修复 commit |
+|---|---|---|---|
+| 1 (35235189820) | 20.03×5 checkout 死；22.03×5 编译死；24.03×5 sequential 3.5h 超时被 cancel | ①20.03 镜像无 tar，checkout 的 REST 回退需要它 ②gcc 10.3 不认识 armv9-a 架构名 ③max-parallel 5 分批在共享 runner 池互相拖长尾 | 46a2bb4a3 (tar) / 35d57f7cc (armv8.2-a+sve2) / 2ad1f96c4 (max-parallel 15 + timeout 2s + 360min) |
+| 2 (35295112265) | 20.03 dnf 死 | sed 把 repo 重写到 archives.openeuler.org——该站没有 20.03-LTS 树（404）；官方 repo.openeuler.org 其实活着（302→dl-cdn CDN，15 tag 全 200） | 21fb8c138（删 sed，保留官方 URL） |
+| 3 (35295843012) | 20.03 dnf GPG 失败 | CDN 上 20.03 的部分 RPM 未签名（zlib-devel-1.2.11-17.oe1 "is not signed"），gpgcheck=1 中止整个事务 | 5229935e4（--nogpgcheck） |
+| 4 (35296465324) | 20.03 编译死 arm_sve.h | gcc 7.3 无 arm_sve.h（GCC 8+ 才有） | f809ba3dc（include 守卫 __GNUC__>=10） |
+| 5 (35297495473) | 20.03 编译死 armv8.4-a+sha3/+sm4 属性 + vsm3/vsm4/vsha512 intrinsic | gcc 7.3 不认识 armv8.4-a 修饰符（GCC 8+）、vsm3/vsm4（GCC 9+）、vsha512（GCC 10+） | edb629fba（sha512/sha3/sm3/sm4/sm4key 五方法 __GNUC__>=10 门控） |
+| 6 (35298726644) | 20.03 编译死 HWCAP2_RNG | 20.03 内核头（4.19 era）无 HWCAP2_RNG（kernel 5.3+）→ **本地 20.03 容器全量验证 = 发现 pmull verify 真 bug** | a5e3aa5a8（#ifndef fallback + pmull golden 分派修复） |
+| 7 (35300002914) | 14 个 job sequential 断言失败 | ①断言脚本 fork 饥饿误报（pids cgroup 被残留 worker 占满，grep/awk 全 fail→计数全 0）②numacopy/shm/wait/cgroup 在 runner 容器环境失败（本地容器验证代码正常） | 245f2f458（fork-free 断言 + 四 stressor 排除 + 清理步骤） |
+| 8 (35302105963) | 待观察 | — | — |
+
+### 修复的真软件 bug（CI 的核心价值兑现）
+**pmull golden 分派 bug（stress-armcrypto.c）**：`--verify` 的软件参考分派用**方法表下标**（`n == 1` aes、`n == 9` pmull）。gcc<10 时表缩 5 项，pmull 移到下标 4，`n==9` 永不命中 → ref 保持 memset 全 0 → 每个 word 报 "expected 0x0000000000000000"。该 bug 在表结构变化（增删方法）时也会触发，条件编译只是让它可达。修复：按稳定方法名分派。20.03 容器实测修复前后对比（fail → pass）。
+
+### 关键方法论沉淀
+- **本地容器先行**：run 6 后改用本地 openeuler-offline:20.03-LTS-SP4 镜像（gcc 7.3）全量编译+冒烟，一次性抓完剩余编译错误（HWCAP2_RNG + pmull bug），不再每轮 CI 试错
+- **runner 环境受限甄别**：numacopy（单 NUMA）/shm（64MB dev/shm）/wait（pids limit）/cgroup（无 cgroup v2 挂载）在本地容器通过 → 环境问题入排除清单；软件问题修代码
+- **断言脚本要防 fork 饥饿**：跑在 stressor 后面的脚本必须 fork-free（bash 内建）
+- CDN 细节：archives.openeuler.org ≠ 老 LTS 存放处；repo.openeuler.org 302 dl-cdn.openeuler.openatom.cn 全系 200；20.03 部分 RPM 未签名
+
+
 
 用户需求：15 个 openEuler LTS 镜像（20.03/22.03/24.03 × 5 SP）原生 container 模式构建 + 全量功能测试 + 基准对比 + 每日 12:00 触发 + ghcr.io 改名 sdc-stressng。
 
