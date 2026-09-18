@@ -685,9 +685,15 @@ static void run_method(stress_args_t *args, const size_t n)
 		uint64_t ref[CRYPTO_LANES * 2];
 		size_t i, l;
 
-		/* recompute the software reference over the same inputs */
+		/* recompute the software reference over the same inputs.
+		 * Dispatch on the stable method NAME, never on the table
+		 * index: the table shrinks on older toolchains (sha512/
+		 * sha3/sm3/sm4/sve2-* compile out below GCC 10) and an
+		 * index-based dispatch silently matched the wrong method,
+		 * comparing pmull hardware output against an all-zero
+		 * reference. */
 		memset(ref, 0, sizeof(ref));
-		if (n == 1) {
+		if (!strcmp(method->name, "aes")) {
 			uint8_t states[CRYPTO_LANES][16];
 			const uint8_t *key = (const uint8_t *)&crypto_in[CRYPTO_LANES * 2];
 
@@ -698,7 +704,7 @@ static void run_method(stress_args_t *args, const size_t n)
 					sw_aes_round(states[l], key);
 			}
 			memcpy(ref, states, sizeof(states));
-		} else if (n == 9) {
+		} else if (!strcmp(method->name, "pmull")) {
 			/* replicate the hw_pmull chained lanes:
 			 * acc[l] = vmull(lo(acc[l]), lo(acc[l+1]))
 			 *        XOR vmull_high(hi(acc[l]), hi(acc[l+1])) */
