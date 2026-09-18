@@ -2244,7 +2244,7 @@ do {			\
  *  32 x VL-bit registers, the largest register file SRAM in an
  *  SVE2-capable CPU.
  */
-#define REGS_SVE_TARGET __attribute__((target("arch=armv9-a+sve2")))
+#define REGS_SVE_TARGET __attribute__((target("arch=armv8.6-a+sve2")))
 
 REGS_SVE_TARGET
 static void NOINLINE OPTIMIZE0 stress_regs_exercise_sve(stress_args_t *args, register uint64_t v)

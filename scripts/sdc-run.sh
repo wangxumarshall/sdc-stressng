@@ -103,7 +103,7 @@ while [ $# -gt 0 ]; do
 	-o|--out)
 		OUT="$2"; shift 2 ;;
 	--sdcshield)
-		SDCSHIELD_ARG="--sdcshield $2"; shift 2 ;;
+		SDCSHIELD_ARG="$2"; shift 2 ;;
 	--keep-bg)
 		KEEP_BG="$2"; shift 2 ;;
 	--preheat)
@@ -282,7 +282,8 @@ run_full()
 	#  Optional SDCShield golden cross-check in the foreground
 	if [ -n "$SDCSHIELD_ARG" ]; then
 		# shellcheck disable=SC2086
-		$SDCSHIELD_ARG -T forever -t "${dur}s" -Y -F \
+		timeout --signal=TERM --kill-after=30 $((dur + 120)) \
+			$SDCSHIELD_ARG -T forever -t "${dur}s" -Y -F \
 			-e 'zstd19' -e 'zlib*' -e 'fma*' -e 'crc32' -e 'isal_crc*' \
 			> "$out/sdcshield.log" 2>&1
 		rc=$?
