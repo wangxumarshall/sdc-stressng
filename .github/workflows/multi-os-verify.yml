@@ -113,19 +113,12 @@ jobs:
       SEQ_TIMEOUT: ${{ github.event.inputs.sequential_timeout || '5' }}
       TAG_SAFE: ${{ matrix.tag_safe }}
     steps:
-      # 20.03 images point at EOL repos; retarget to the archive mirror
-      # so dnf can resolve dev packages. Best-effort: the base image
-      # already ships gcc/make, so a repo failure is not fatal.
-      - name: Point 20.03 repos at openEuler archive
-        if: startsWith(matrix.image_tag, '20.03')
-        run: |
-          set -x
-          if grep -qE 'repo.openeuler.org' /etc/yum.repos.d/*.repo 2>/dev/null; then
-            sed -i -e 's#https://repo.openeuler.org#https://archives.openeuler.org#g' \
-                   -e 's#http://repo.openeuler.org#https://archives.openeuler.org#g' \
-                   /etc/yum.repos.d/*.repo
-            cat /etc/yum.repos.d/*.repo || true
-          fi
+      # NOTE: do NOT rewrite 20.03 repo files to archives.openeuler.org.
+      # The archive host has no openEuler-20.03-LTS tree (404); the
+      # original repo.openeuler.org URLs are alive and 302-redirect to
+      # the dl-cdn.openeuler.openatom.cn CDN for every LTS version
+      # (verified 2026-09-18 for all 15 tags). The 20.03 images' dnf
+      # works out of the box.
 
       # Dependency cache: keyed on the image tag (each tag has its own
       # repo layout and RPM versions, so caches never cross tags).
@@ -137,7 +130,7 @@ jobs:
           path: |
             /var/cache/dnf
             /var/lib/dnf
-          key: dnf-${{ matrix.image_tag }}-v1
+          key: dnf-${{ matrix.image_tag }}-v2
           restore-keys: dnf-${{ matrix.image_tag }}-
 
       - name: Install build dependencies
