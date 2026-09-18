@@ -251,10 +251,12 @@ static void armcrypto_hwcap_init(void)
 static bool capable_aes(void)		{ return CAPABLE(HWCAP_AES, 0); }
 static bool capable_sha1(void)		{ return CAPABLE(HWCAP_SHA1, 0); }
 static bool capable_sha256(void)	{ return CAPABLE(HWCAP_SHA2, 0); }
+#if defined(__GNUC__) && (__GNUC__ >= 10)
 static bool capable_sha512(void)	{ return CAPABLE(HWCAP_SHA512, 0); }
 static bool capable_sha3(void)		{ return CAPABLE(HWCAP_SHA3, 0); }
 static bool capable_sm3(void)		{ return CAPABLE(HWCAP_SM3, 0); }
 static bool capable_sm4(void)		{ return CAPABLE(HWCAP_SM4, 0); }
+#endif
 static bool capable_pmull(void)		{ return CAPABLE(HWCAP_PMULL, 0); }
 #if defined(HAVE_ARMCRYPTO_SVE2)
 static bool capable_sve2_aes(void)	{ return CAPABLE(0, HWCAP2_SVEAES); }
@@ -347,6 +349,15 @@ static void hw_sha256(void)
 	}
 }
 
+/*
+ *  The sha512/sha3/sm3/sm4 kernels need toolchain support that GCC 7
+ *  (openEuler 20.03) lacks: the +sha3/+sm4 target-attribute feature
+ *  modifiers and the armv8.4-a arch string arrived with GCC 8, the
+ *  vsm3/vsm4 intrinsics with GCC 9 and vsha512 with GCC 10.  Gate
+ *  the whole group on GCC 10 (the level the SVE2 block already
+ *  requires); older toolchains honestly drop these methods.
+ */
+#if defined(__GNUC__) && (__GNUC__ >= 10)
 __attribute__((target("arch=armv8.4-a+sha3")))
 static void hw_sha512(void)
 {
@@ -459,6 +470,7 @@ static void hw_sm3(void)
 	for (l = 0; l < CRYPTO_LANES; l++)
 		vst1q_u32((uint32_t *)&crypto_hw[l * 4], v[l]);
 }
+#endif	/* __GNUC__ >= 10 (sha512/sha3/sm3/sm4 kernels) */
 
 __attribute__((target("+crypto")))
 static void hw_pmull(void)
@@ -608,11 +620,13 @@ static stress_armcrypto_method_t stress_armcrypto_methods[] = {
 	{ "aes",	hw_aes,			capable_aes,		"aes",		true  },
 	{ "sha1",	hw_sha1,		capable_sha1,		"sha1",		false },
 	{ "sha256",	hw_sha256,		capable_sha256,		"sha2",		false },
+#if defined(__GNUC__) && (__GNUC__ >= 10)
 	{ "sha512",	hw_sha512,		capable_sha512,		"sha512",	false },
 	{ "sha3",	hw_sha3,		capable_sha3,		"sha3",		false },
 	{ "sm3",	hw_sm3,			capable_sm3,		"sm3",		false },
 	{ "sm4",	hw_sm4,			capable_sm4,		"sm4",		false },
 	{ "sm4key",	hw_sm4key,		capable_sm4,		"sm4",		false },
+#endif
 	{ "pmull",	hw_pmull,		capable_pmull,		"pmull",	true  },
 #if defined(HAVE_ARMCRYPTO_SVE2)
 	{ "sve2-aes",	hw_sve2_aes,		capable_sve2_aes,	"sveaes",	false },
