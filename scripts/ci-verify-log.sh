@@ -92,14 +92,23 @@ fi
 
 # --- explicit rc cross-check when provided ---
 if [[ -n "$RC" && "$RC" != "0" ]]; then
-	echo "::error::[$LABEL] stress-ng exit code $RC but no 'failed:' line — classify before ignoring"
-	mapfile -t tail_lines < "$LOG"
-	n=${#tail_lines[@]}
-	start=$((n > 30 ? n - 30 : 0))
-	for ((i = start; i < n; i++)); do
-		echo "    ${tail_lines[i]}"
-	done
-	exit 1
+	if [[ "$RC" == "3" && "$fail_seen" != "1" && "$completed" -ge 1 ]]; then
+		# EXIT_NO_RESOURCE: at least one stressor aborted early for
+		# lack of system resources (counted as skipped, run otherwise
+		# complete). On constrained CI runners this is an environment
+		# condition, not a code defect — the suite summary above shows
+		# zero failures. Report as a warning and pass.
+		echo "::warning::[$LABEL] exit code 3 (no system resources): at least one stressor aborted early for lack of resources; run completed with failed=0 — treated as environment-limited"
+	else
+		echo "::error::[$LABEL] stress-ng exit code $RC but no 'failed:' line — classify before ignoring"
+		mapfile -t tail_lines < "$LOG"
+		n=${#tail_lines[@]}
+		start=$((n > 30 ? n - 30 : 0))
+		for ((i = start; i < n; i++)); do
+			echo "    ${tail_lines[i]}"
+		done
+		exit 1
+	fi
 fi
 
 echo "[$LABEL] OK"
