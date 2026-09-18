@@ -154,6 +154,12 @@ jobs:
           command -v tar || { echo "::error::tar still missing — checkout cannot proceed"; exit 1; }
 
       - uses: actions/checkout@v7
+        with:
+          # nothing downstream needs the stored credentials, and the
+          # post-step 'git config --unset' has failed with exit 128 on
+          # runners where the pids limit was still saturated by worker
+          # reaping after the suite — a no-op post step cannot fail
+          persist-credentials: false
 
       # ---------------------------------------------------------------
       # Build with UBSan (SANITIZE=1) where the toolchain supports it.
@@ -235,16 +241,13 @@ jobs:
 
       # The sequential sweep leaves reaped-late worker processes that
       # can pin the container pids limit for a while (observed: 'fork:
-      # Resource temporarily unavailable' right after the run). Give
-      # the reaper a moment before the next fork-heavy steps. Zombies
-      # cannot be killed (they need their parent to reap them) — do
-      # not try; just wait and report.
-      - name: Post-suite process cleanup
+      # Resource temporarily unavailable' right after the run — even
+      # 'ps' or 'head' in this step failed with exit 128 on the
+      # runner). Only shell builtins here: wait for the reaper, no
+      # subcommands at all.
+      - name: Post-suite settle
         if: github.event.inputs.run_full_suite != 'false'
-        run: |
-          sleep 15
-          { ps aux 2>/dev/null || true; } | head -40 || true
-          echo "cleanup done"
+        run: sleep 15
 
       # ---------------------------------------------------------------
       # Full-parameter method sweep: every <name>-method option with the
