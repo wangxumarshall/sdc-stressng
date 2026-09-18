@@ -1,8 +1,31 @@
 # Progress Log
 
-## Session 2026-09-18（第九轮）: CI 首跑问题修复 + 2 个真 bug 修复
+## Session 2026-09-18（第十轮）: 并行收尾 —— 首次 ghcr 发布成功 + 首次全绿全量运行
 
-> 迭代史表格见下；run 14 结果：**14/15 success**（唯一失败=20.03 opcode 偶发 + sp4 慢 runner 超时，均非代码问题）。benchmark-compare success。run 15（opcode 重试修复后）进行中。
+用户指令：继续、并行搞、用 subagent。三路并行（快跑 publish + subagent 盯 sp4 + subagent 基准分析）。
+
+### 本轮成果
+1. **首次 ghcr 发布**（run 35372724010，fast 模式 33/33 全绿）：15/15 镜像上线 `ghcr.io/wangxumarshall/sdc-stressng:verify-<tag>`；22.03-sp1 首推遇 ghcr blob 竞态（unknown blob，15 job 并发推同一基础层），rerun --failed 一次成功；registry API 验证 3 代表 tag manifest 200
+2. **Subagent B 深度分析发现 3 个工作流 bug**（docs/superpowers/research/2026-09-18-ci-benchmark-analysis.md）：
+   - `with: path:` 里 shell 式 `${TAG_SAFE}` 不展开 → bench yaml/methods log/seq log 全部从未上传（对比表空）
+   - **UBSan 构建是 sp4 "慢 runner" 的真根因**：sanitizer 仪器化让 sequential 挂 5h42m 至超时（非 runner 慢）
+   - BUILD_MODE echo 顺序（已随 UBSan 移除而消解）
+   三修复 commit 5de5bdd4a（${{ env.TAG_SAFE }} 表达式 / 弃用 SANITIZE / timeout 90m 包裹 sequential）
+3. **Run 16 首次全绿全量运行**（35376792396，18 success + 1 预期 skipped）：
+   - 基准对比表真实数据 15 列全齐
+   - sequential 330 pass / 0 failed（24.03-lts 抽查），全部 15 镜像 OK
+   - reports artifact 修复后含 tag 后缀文件
+
+### 跨 OS 基准首份真实数据（20s 采样，趋势对比用）
+| stressor | 20.03 系 (gcc7.3) | 22.03 系 (gcc10.3) | 24.03 系 (gcc12.3) | 解读 |
+|---|---|---|---|---|
+| fma | ~16-18 万 ops/s | ~48-51 万 | ~48-54 万 | gcc10 向量化 3 倍跳变（编译器代差） |
+| memrate | ~1,900-2,200 | ~1,900-2,100 | **~5,000-6,400** | 24.03 的 glibc/内核优势 2.5-3x |
+| memcpy | ~70-73 | ~86-94 | ~81-96 | 22.03 起提升 |
+| cpu/stream | 平坦 | 平坦 | 平坦 | 编译器不敏感 |
+| 同 SP 版本内 | 波动 <10% | <10% | <10% | 测量可信 |
+
+
 
 ### runner 环境的深层发现（run 7-14 排障沉淀）
 | 现象 | 根因 | 处置 |
