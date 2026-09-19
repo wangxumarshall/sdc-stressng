@@ -145,6 +145,16 @@ static inline bool arm_rndrrs(uint64_t *val)
 	return ok != 0;
 }
 
+/*
+ *  HWCAP2_RNG (AT_HWCAP2 bit 16) arrived with kernel 5.3; older
+ *  kernel headers (e.g. openEuler 20.03's 4.19-era asm/hwcap.h) do
+ *  not define it, so provide the raw bit locally, in the style of
+ *  the ls64 stressor's HWCAP2/HWCAP3 fallbacks.
+ */
+#ifndef HWCAP2_RNG
+#define HWCAP2_RNG		(1UL << 16)
+#endif
+
 static int stress_rdrand_supported(const char *name)
 {
 	const unsigned long hwcap2 = getauxval(AT_HWCAP2);

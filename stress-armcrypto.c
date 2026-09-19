@@ -92,7 +92,13 @@ static const stress_help_t help[] = {
 #include <sys/auxv.h>
 #include <asm/hwcap.h>
 #include <arm_neon.h>
+#if defined(__GNUC__) && (__GNUC__ >= 10)
+/* <arm_sve.h> ships with GCC 8+; the SVE2 method block below
+ * additionally requires the GCC 10+ +sve2 target-attribute support */
 #include <arm_sve.h>
+#define HAVE_ARMCRYPTO_SVE2
+#define SVE2_TARGET __attribute__((target("arch=armv8.2-a+sve2+sve2-aes+sve2-sm4+sve2-sha3")))
+#endif
 
 static bool armcrypto_all_okay = true;
 
@@ -245,15 +251,19 @@ static void armcrypto_hwcap_init(void)
 static bool capable_aes(void)		{ return CAPABLE(HWCAP_AES, 0); }
 static bool capable_sha1(void)		{ return CAPABLE(HWCAP_SHA1, 0); }
 static bool capable_sha256(void)	{ return CAPABLE(HWCAP_SHA2, 0); }
+#if defined(__GNUC__) && (__GNUC__ >= 10)
 static bool capable_sha512(void)	{ return CAPABLE(HWCAP_SHA512, 0); }
 static bool capable_sha3(void)		{ return CAPABLE(HWCAP_SHA3, 0); }
 static bool capable_sm3(void)		{ return CAPABLE(HWCAP_SM3, 0); }
 static bool capable_sm4(void)		{ return CAPABLE(HWCAP_SM4, 0); }
+#endif
 static bool capable_pmull(void)		{ return CAPABLE(HWCAP_PMULL, 0); }
+#if defined(HAVE_ARMCRYPTO_SVE2)
 static bool capable_sve2_aes(void)	{ return CAPABLE(0, HWCAP2_SVEAES); }
 static bool capable_sve2_pmull(void)	{ return CAPABLE(0, HWCAP2_SVEPMULL); }
 static bool capable_sve2_sha3(void)	{ return CAPABLE(0, HWCAP2_SVESHA3); }
 static bool capable_sve2_sm4(void)	{ return CAPABLE(0, HWCAP2_SVESM4); }
+#endif
 
 /*
  *  Hardware method implementations
@@ -339,6 +349,15 @@ static void hw_sha256(void)
 	}
 }
 
+/*
+ *  The sha512/sha3/sm3/sm4 kernels need toolchain support that GCC 7
+ *  (openEuler 20.03) lacks: the +sha3/+sm4 target-attribute feature
+ *  modifiers and the armv8.4-a arch string arrived with GCC 8, the
+ *  vsm3/vsm4 intrinsics with GCC 9 and vsha512 with GCC 10.  Gate
+ *  the whole group on GCC 10 (the level the SVE2 block already
+ *  requires); older toolchains honestly drop these methods.
+ */
+#if defined(__GNUC__) && (__GNUC__ >= 10)
 __attribute__((target("arch=armv8.4-a+sha3")))
 static void hw_sha512(void)
 {
@@ -451,6 +470,7 @@ static void hw_sm3(void)
 	for (l = 0; l < CRYPTO_LANES; l++)
 		vst1q_u32((uint32_t *)&crypto_hw[l * 4], v[l]);
 }
+#endif	/* __GNUC__ >= 10 (sha512/sha3/sm3/sm4 kernels) */
 
 __attribute__((target("+crypto")))
 static void hw_pmull(void)
@@ -591,6 +611,7 @@ static void hw_sve2_sm4(void)
 		svst1_u64(pg, &crypto_hw[l * 2], z0);
 	}
 }
+#endif	/* HAVE_ARMCRYPTO_SVE2 */
 
 /*
  *  Method table
@@ -600,16 +621,20 @@ static stress_armcrypto_method_t stress_armcrypto_methods[] = {
 	{ "aes",	hw_aes,			capable_aes,		"aes",		true  },
 	{ "sha1",	hw_sha1,		capable_sha1,		"sha1",		false },
 	{ "sha256",	hw_sha256,		capable_sha256,		"sha2",		false },
+#if defined(__GNUC__) && (__GNUC__ >= 10)
 	{ "sha512",	hw_sha512,		capable_sha512,		"sha512",	false },
 	{ "sha3",	hw_sha3,		capable_sha3,		"sha3",		false },
 	{ "sm3",	hw_sm3,			capable_sm3,		"sm3",		false },
 	{ "sm4",	hw_sm4,			capable_sm4,		"sm4",		false },
 	{ "sm4key",	hw_sm4key,		capable_sm4,		"sm4",		false },
+#endif
 	{ "pmull",	hw_pmull,		capable_pmull,		"pmull",	true  },
+#if defined(HAVE_ARMCRYPTO_SVE2)
 	{ "sve2-aes",	hw_sve2_aes,		capable_sve2_aes,	"sveaes",	false },
 	{ "sve2-pmull",	hw_sve2_pmull,		capable_sve2_pmull,	"svepmull",	false },
 	{ "sve2-sha3",	hw_sve2_sha3,		capable_sve2_sha3,	"svesha3",	false },
 	{ "sve2-sm4",	hw_sve2_sm4,		capable_sve2_sm4,	"svesm4",	false },
+#endif
 };
 
 /*
@@ -661,9 +686,15 @@ static void run_method(stress_args_t *args, const size_t n)
 		uint64_t ref[CRYPTO_LANES * 2];
 		size_t i, l;
 
-		/* recompute the software reference over the same inputs */
+		/* recompute the software reference over the same inputs.
+		 * Dispatch on the stable method NAME, never on the table
+		 * index: the table shrinks on older toolchains (sha512/
+		 * sha3/sm3/sm4/sve2-* compile out below GCC 10) and an
+		 * index-based dispatch silently matched the wrong method,
+		 * comparing pmull hardware output against an all-zero
+		 * reference. */
 		memset(ref, 0, sizeof(ref));
-		if (n == 1) {
+		if (!strcmp(method->name, "aes")) {
 			uint8_t states[CRYPTO_LANES][16];
 			const uint8_t *key = (const uint8_t *)&crypto_in[CRYPTO_LANES * 2];
 
@@ -674,7 +705,7 @@ static void run_method(stress_args_t *args, const size_t n)
 					sw_aes_round(states[l], key);
 			}
 			memcpy(ref, states, sizeof(states));
-		} else if (n == 9) {
+		} else if (!strcmp(method->name, "pmull")) {
 			/* replicate the hw_pmull chained lanes:
 			 * acc[l] = vmull(lo(acc[l]), lo(acc[l+1]))
 			 *        XOR vmull_high(hi(acc[l]), hi(acc[l+1])) */

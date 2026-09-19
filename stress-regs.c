@@ -1923,12 +1923,18 @@ do {			\
     defined(__aarch64__)
 
 #include <arm_neon.h>
+#if defined(__GNUC__) && (__GNUC__ >= 10)
+/* <arm_sve.h> ships with GCC 8+, the +sve2 target attribute with
+ * GCC 10; guard both together for the SVE exercise path below */
 #include <arm_sve.h>
+#define HAVE_REGS_SVE
+#endif
 #include <sys/auxv.h>
 #include <asm/hwcap.h>
 
 static void NOINLINE OPTIMIZE0 stress_regs_exercise_neon(stress_args_t *args, register uint64_t v);
-#if defined(HAVE_ARM_NEON_CRYPTO)
+#if defined(HAVE_ARM_NEON_CRYPTO) &&	\
+    defined(HAVE_REGS_SVE)
 static void NOINLINE OPTIMIZE0 stress_regs_exercise_sve(stress_args_t *args, register uint64_t v);
 static bool sve_supported(void);
 #endif
@@ -2141,7 +2147,8 @@ do {			\
 #undef SHUFFLE_REGS
 
 	stress_regs_exercise_neon(args, v);
-#if defined(HAVE_ARM_NEON_CRYPTO)
+#if defined(HAVE_ARM_NEON_CRYPTO) &&	\
+    defined(HAVE_REGS_SVE)
 	if (LIKELY(sve_supported()))
 		stress_regs_exercise_sve(args, v);
 #endif
@@ -2235,7 +2242,8 @@ do {			\
 #undef SHUFFLE_REGS
 }
 
-#if defined(HAVE_ARM_NEON_CRYPTO)
+#if defined(HAVE_ARM_NEON_CRYPTO) &&	\
+    defined(HAVE_REGS_SVE)
 /*
  *  SVE z0..z31 scalable vector register file exercise.
  *  Compiled with a per-function target attribute (so no global
@@ -2243,6 +2251,11 @@ do {			\
  *  bit; the stressor honestly runs this only on SVE hardware.
  *  32 x VL-bit registers, the largest register file SRAM in an
  *  SVE2-capable CPU.
+ *
+ *  armv8.2-a base instead of armv9-a: +sve2 on an armv8.x base is
+ *  accepted from GCC 10; the armv9-a architecture name needs GCC 11+
+ *  (GCC 10.3, the openEuler 22.03 toolchain, rejects it).  Toolchains
+ *  below GCC 10 get no SVE register exercise (NEON path remains).
  */
 #define REGS_SVE_TARGET __attribute__((target("arch=armv8.6-a+sve2")))
 

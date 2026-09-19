@@ -1,0 +1,485 @@
+name: multi-os-verify
+
+# Automated multi-OS verification for the sdc-stressng fork.
+#
+# Builds stress-ng inside 15 openEuler LTS container images (20.03 / 22.03 /
+# 24.03 LTS series, 5 SP levels each), then runs a full functional sweep
+# (every stressor + every method option) and a small fixed-work benchmark
+# whose results are compared across the 15 images.
+#
+# Trigger: daily at 12:00 Beijing time (04:00 UTC), or manual.
+
+on:
+  schedule:
+    # 04:00 UTC = 12:00 CST (Asia/Shanghai) — daily
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      run_full_suite:
+        description: 'Run full --sequential suite (false = smoke only)'
+        type: boolean
+        default: true
+      sequential_timeout:
+        description: 'Per-stressor timeout in the --sequential run (seconds)'
+        default: '2'
+      publish_image:
+        description: 'Push container image to ghcr.io (false = build only)'
+        type: boolean
+        default: false
+
+env:
+  # openEuler LTS tags: 5 per major release, 15 total
+  IMAGE_TAGS: >-
+    20.03-lts 20.03-lts-sp1 20.03-lts-sp2 20.03-lts-sp3 20.03-lts-sp4
+    22.03-lts 22.03-lts-sp1 22.03-lts-sp2 22.03-lts-sp3 22.03-lts-sp4
+    24.03-lts 24.03-lts-sp1 24.03-lts-sp2 24.03-lts-sp3 24.03-lts-sp4
+  REGISTRY: ghcr.io
+  # ghcr.io repository — renamed from the historical 'opendcdiag-arm'
+  IMAGE_NAME: ${{ github.repository }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ------------------------------------------------------------------
+  # Job 1/5: fail-fast manifest pre-check.
+  # Verifies all 15 tags resolve in Docker Hub before spending 15
+  # parallel container slots, so a typo'd or EOL-removed tag aborts
+  # the run in ~30s instead of after minutes of setup.
+  # ------------------------------------------------------------------
+  manifest-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all 15 openEuler LTS tags exist
+        run: |
+          set -eu
+          rc=0
+          for tag in $IMAGE_TAGS; do
+            if docker manifest inspect openeuler/openeuler:${tag} > /dev/null 2>&1; then
+              echo "OK  openeuler/openeuler:${tag}"
+            else
+              echo "::error::missing openeuler/openeuler:${tag} — tag renamed or removed upstream?"
+              rc=1
+            fi
+          done
+          count=$(echo $IMAGE_TAGS | wc -w)
+          echo "verified ${count} tags"
+          exit $rc
+
+  # ------------------------------------------------------------------
+  # Job 2/5: build + full functional test + benchmark sample.
+  # One matrix entry per openEuler LTS image. Runs natively inside the
+  # target container via the `container:` attribute — the runner mounts
+  # the repo into the container workspace automatically.
+  # fail-fast is OFF: all 15 images complete even if some fail, so a
+  # single-image regression never masks the others' results.
+  # ------------------------------------------------------------------
+  build-test:
+    needs: manifest-check
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      # All 15 at once: each job gets its own 4-core VM. Running them
+      # in waves (previous setting: 5) stretches the sequential-suite
+      # tail across pool-contention windows and pushed jobs past the
+      # timeout on the first CI run.
+      max-parallel: 15
+      matrix:
+        include:
+          - { image_tag: 20.03-lts,     tag_safe: 20-03-lts }
+          - { image_tag: 20.03-lts-sp1, tag_safe: 20-03-lts-sp1 }
+          - { image_tag: 20.03-lts-sp2, tag_safe: 20-03-lts-sp2 }
+          - { image_tag: 20.03-lts-sp3, tag_safe: 20-03-lts-sp3 }
+          - { image_tag: 20.03-lts-sp4, tag_safe: 20-03-lts-sp4 }
+          - { image_tag: 22.03-lts,     tag_safe: 22-03-lts }
+          - { image_tag: 22.03-lts-sp1, tag_safe: 22-03-lts-sp1 }
+          - { image_tag: 22.03-lts-sp2, tag_safe: 22-03-lts-sp2 }
+          - { image_tag: 22.03-lts-sp3, tag_safe: 22-03-lts-sp3 }
+          - { image_tag: 22.03-lts-sp4, tag_safe: 22-03-lts-sp4 }
+          - { image_tag: 24.03-lts,     tag_safe: 24-03-lts }
+          - { image_tag: 24.03-lts-sp1, tag_safe: 24-03-lts-sp1 }
+          - { image_tag: 24.03-lts-sp2, tag_safe: 24-03-lts-sp2 }
+          - { image_tag: 24.03-lts-sp3, tag_safe: 24-03-lts-sp3 }
+          - { image_tag: 24.03-lts-sp4, tag_safe: 24-03-lts-sp4 }
+    container:
+      image: openeuler/openeuler:${{ matrix.image_tag }}
+      options: --user root
+    # 4-core shared arm64 runners run the full --sequential suite far
+    # slower than a dev box; budget generously so a slow pool window
+    # degrades to a slow run instead of a timeout kill.
+    timeout-minutes: 360
+    env:
+      SEQ_TIMEOUT: ${{ github.event.inputs.sequential_timeout || '5' }}
+      TAG_SAFE: ${{ matrix.tag_safe }}
+    steps:
+      # NOTE: do NOT rewrite 20.03 repo files to archives.openeuler.org.
+      # The archive host has no openEuler-20.03-LTS tree (404); the
+      # original repo.openeuler.org URLs are alive and 302-redirect to
+      # the dl-cdn.openeuler.openatom.cn CDN for every LTS version
+      # (verified 2026-09-18 for all 15 tags). The 20.03 images' dnf
+      # works out of the box.
+
+      # NOTE on caching: actions/cache's post step (cache save) runs
+      # AFTER the full --sequential suite, in a container whose OCI
+      # runtime that suite has exhausted — it fails with exit 128 and
+      # poisons the job conclusion (same as the checkout post step
+      # removed earlier, run 35314416212: all 12 failures were 'Post
+      # dnf cache' alone with every functional step green). Manual
+      # dnf keepcache has no way to survive the fresh container per
+      # job either, so dependency caching is dropped for now; the
+      # cost is ~1-2min of dnf metadata refresh per job.
+
+      - name: Install build dependencies
+        run: |
+          set -x
+          # tar/gzip are needed by the tarball checkout below (the
+          # 20.03 base image ships without tar; curl ships with every
+          # openEuler base image). gcc/make ship with the base image;
+          # optional libs pull more stressors into the build (judy,
+          # mpfr, xxhash, ...). Missing libs are not fatal — the build
+          # config adapts (Makefile.config probes).
+          # --nogpgcheck: the CDN serving the old 20.03 repos hosts
+          # unsigned RPMs (e.g. zlib-devel-1.2.11-17.oe1) and the
+          # default gpgcheck=1 aborts the whole install; CI only needs
+          # a build toolchain here, not authenticated packages.
+          dnf install -y --setopt=install_weak_deps=False --skip-broken --nogpgcheck \
+              tar gzip make gcc gcc-c++ \
+              judy-devel mpfr-devel xxhash-devel \
+              libaio-devel libcap-devel keyutils-libs-devel \
+              bzip2-devel zlib-devel 2>&1 | tail -5 || true
+          command -v tar || { echo "::error::tar still missing — checkout cannot proceed"; exit 1; }
+
+      # Check out via the REST tarball instead of actions/checkout.
+      # The full --sequential suite at the end of this job exhausts
+      # the container's OCI runtime ('procReady not received'), and
+      # actions/checkout's post step (orphan-process cleanup) then
+      # fails and poisons the job conclusion even though every real
+      # step succeeded — all 14 matrix 'failures' in run 35311998836
+      # were exactly this, with every functional step green. A plain
+      # tar extraction has no post step to fail.
+      - name: Checkout (tarball)
+        run: |
+          set -eux
+          curl -fsSL --retry 3 \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -o /tmp/src.tar.gz \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/tarball/${GITHUB_SHA}"
+          tar -xzf /tmp/src.tar.gz --strip-components=1
+          ls scripts/ci-verify-log.sh Makefile stress-ng.c
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ---------------------------------------------------------------
+      # Build. The default is a plain -O2 build for all functional
+      # steps below. Run-14 data showed the UBSan build is a trap on
+      # this workload: the only image that linked it (24.03-lts-sp4)
+      # hung inside the sequential suite for 5h42m until the job
+      # timeout — sanitizer instrumentation makes a suite of ~390
+      # x per-stressor timeouts effectively unbounded on a 4-core
+      # shared runner. UBSan also found only one benign runtime
+      # warning (cpu float-conversion, ~8.7% slower smoke rate), not
+      # worth 6 hours of CI per image. SANITIZE=1 remains available
+      # for targeted local debugging.
+      # ---------------------------------------------------------------
+      - name: Build
+        run: |
+          set -x
+          make -j"$(nproc)" > build.log 2>&1 || {
+            tail -40 build.log; exit 1; }
+          ./stress-ng --version
+          ./stress-ng --buildinfo | tee buildinfo.txt
+
+      # ---------------------------------------------------------------
+      # Smoke: quick sanity before the long runs (asserts on the real
+      # log, not a canned one)
+      # ---------------------------------------------------------------
+      - name: Smoke test
+        run: |
+          set -x
+          set +e
+          ./stress-ng --cpu 2 --timeout 5 --verify --metrics-brief > smoke.log 2>&1
+          rc=$?
+          set -e
+          tail -4 smoke.log
+          ./scripts/ci-verify-log.sh smoke.log smoke "$rc"
+
+      # ---------------------------------------------------------------
+      # Full-parameter method sweep: every <name>-method option with the
+      # 'all' keyword (or enumerated choices when 'all' is absent).
+      # Runs BEFORE the full suite: the sweep leaves the container in
+      # a healthy state, while the full --sequential suite exhausts it
+      # (see the comment on that step).
+      # ---------------------------------------------------------------
+      - name: Method sweep (all *-method options)
+        if: github.event.inputs.run_full_suite != 'false'
+        run: |
+          set -x
+          ./scripts/ci-method-sweep.sh ./stress-ng 4 "methods-${TAG_SAFE}.log"
+
+      # ---------------------------------------------------------------
+      # Benchmark sample: fixed-work stressors, yaml output for the
+      # cross-OS comparison job. Short by design — this is a trend
+      # comparison across images, not a performance certification.
+      # Also runs before the full suite for the same reason as the
+      # method sweep.
+      # ---------------------------------------------------------------
+      - name: Benchmark sample
+        run: |
+          set -x
+          ./stress-ng --cpu 4 --cpu-method matrixprod \
+              --fma 4 --memcpy 2 --memrate 2 --memrate-method write64zva \
+              --stream 2 --verify --timeout 20 \
+              --metrics-brief -Y "bench-${TAG_SAFE}.yaml" > "bench-${TAG_SAFE}.log" 2>&1
+          rc=$?
+          tail -4 "bench-${TAG_SAFE}.log"
+          ./scripts/ci-verify-log.sh "bench-${TAG_SAFE}.log" "bench-${TAG_SAFE}" "$rc"
+
+      # Upload everything produced so far while the container is still
+      # healthy: the full suite below can leave the container runtime
+      # unable to start new processes (OCI 'procReady not received'),
+      # which also kills any in-container artifact upload that follows.
+      - name: Upload binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: stress-ng-${{ env.TAG_SAFE }}
+          path: stress-ng
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload interim test reports
+        uses: actions/upload-artifact@v7
+        with:
+          name: reports-${{ env.TAG_SAFE }}
+          # NOTE: ${{ }} expressions expand here; shell-style ${TAG_SAFE}
+          # inside with: blocks does NOT — run-14 uploads silently
+          # dropped every tag-suffixed file this way
+          path: |
+            buildinfo.txt
+            build.log
+            smoke.log
+            methods-${{ env.TAG_SAFE }}.log
+            bench-${{ env.TAG_SAFE }}.log
+            bench-${{ env.TAG_SAFE }}.yaml
+          retention-days: 30
+          if-no-files-found: warn
+
+      # ---------------------------------------------------------------
+      # Full-suite functional run: every stressor, one by one.
+      # --sequential N runs all stressors sequentially (man stress-ng.1),
+      # --verify turns on per-stressor self-checks where implemented,
+      # --exclude drops stressors that cannot work on GitHub runner
+      # containers (details inline below).
+      # Local reference (24.03 SP3, aarch64): 319 passed / 74 skipped /
+      # 0 failed / ~16min at --timeout 2.
+      #
+      # This step runs LAST on purpose: ~390 short-lived process trees
+      # on a pids-limited 4-core container reliably leave the runner's
+      # OCI runtime unable to exec anything ('procReady not received',
+      # exit 128) for a while after the sweep. Every step that still
+      # needs the container (uploads) has already run by then; this
+      # step's own log analysis uses only bash builtins.
+      # ---------------------------------------------------------------
+      - name: Full functional suite (--sequential)
+        if: github.event.inputs.run_full_suite != 'false'
+        run: |
+          set -x
+          set +e
+          # Excluded, with reasons:
+          #   - pathological five: disabled by stress-ng defaults
+          #     anyway (kept explicit for log clarity)
+          #   - numacopy: single-NODE runners make migrate_pages fail;
+          #     verified functional in a local container (the code is
+          #     fine, the topology is not)
+          #   - shm: runner containers cap /dev/shm at 64MB, the
+          #     stressor needs more; verified fine locally
+          #   - wait: fork-based, collides with the container pids
+          #     limit late in the suite; verified fine locally
+          #   - cgroup: runner containers have no writable cgroup
+          #     v2 hierarchy; verified fine locally
+          # A clean 4-core environment completes the full suite in
+          # ~13min (measured with taskset -c 0-3 on a dev box).
+          # Wall-clock guard: even on a healthy runner the suite is
+          # ~12min, on a contended one 30-60min. 90min 'timeout' keeps
+          # a pathological runner window from eating the whole job
+          # budget; the fork-free log classifier still grades whatever
+          # portion of the log completed (missing summary -> clear
+          # error, no silent hang).
+          timeout 90m ./stress-ng --sequential 1 --timeout "$SEQ_TIMEOUT" --verify \
+              --metrics-brief --skip-silent \
+              --exclude bad-ioctl,mlockmany,oom-pipe,sysinval,watchdog,numacopy,shm,wait,cgroup \
+              -Y "seq-${TAG_SAFE}.yaml" > "seq-${TAG_SAFE}.log" 2>&1
+          rc=$?
+          set -e
+          ./scripts/ci-verify-log.sh "seq-${TAG_SAFE}.log" "seq-${TAG_SAFE}" "$rc"
+
+      # Best-effort upload of the full-suite log; may fail on an
+      # exhausted container, in which case the summary annotation
+      # above still carries the verdict.
+      - name: Upload full-suite log
+        if: always() && github.event.inputs.run_full_suite != 'false'
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: seq-report-${{ env.TAG_SAFE }}
+          path: |
+            seq-${{ env.TAG_SAFE }}.log
+            seq-${{ env.TAG_SAFE }}.yaml
+          retention-days: 30
+          if-no-files-found: warn
+
+  # ------------------------------------------------------------------
+  # Job 3/5: cross-OS benchmark comparison.
+  # Collects the 15 bench-*.yaml artifacts and renders a comparison
+  # table (bogo-ops/s per stressor per OS) into the job summary.
+  # `if: always()` keeps the report even when some images failed.
+  # ------------------------------------------------------------------
+  benchmark-compare:
+    needs: build-test
+    if: always() && needs.build-test.result != 'skipped'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all benchmark reports
+        uses: actions/download-artifact@v7
+        with:
+          pattern: reports-*
+          path: reports
+          merge-multiple: true
+
+      - name: Render cross-OS comparison
+        run: |
+          set -eu
+          python3 - <<'PY'
+          import glob, re, collections
+
+          # tags actually present in this run (e.g. 20-03-lts, 24-03-lts-sp4)
+          files = glob.glob('reports/bench-*.yaml')
+          tags = sorted({re.search(r'bench-(.+)\.yaml', f).group(1) for f in files})
+
+          # rate[stressor][tag] = bogo-ops/s real time
+          data = collections.defaultdict(dict)
+          for tag in tags:
+              cur = None
+              for line in open(f'reports/bench-{tag}.yaml',
+                               encoding='utf-8', errors='replace'):
+                  m = re.match(r'\s+- stressor: (\S+)', line)
+                  if m:
+                      cur = m.group(1)
+                  m = re.match(r'\s+bogo-ops-per-second-real-time: ([\d.]+)', line)
+                  if m and cur:
+                      data[cur][tag] = float(m.group(1))
+
+          lines = ['# Cross-OS benchmark comparison', '',
+                   'bogo-ops/s (real time) per stressor per openEuler image.', '',
+                   '| stressor | ' + ' | '.join(tags) + ' |',
+                   '|---' * (len(tags) + 1) + '|']
+          for s in sorted(data):
+              row = [f'{data[s][t]:,.0f}' if t in data[s] else '—' for t in tags]
+              lines.append(f'| {s} | ' + ' | '.join(row) + ' |')
+          lines += ['', '_Note: rates are from 20s CI runs on shared runners — '
+                    'compare trends across images, not absolute numbers._', '']
+          table = '\n'.join(lines)
+          open('bench-table.md', 'w', encoding='utf-8').write(table)
+          print(table)
+          PY
+          cat bench-table.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload comparison table
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-comparison
+          path: bench-table.md
+          retention-days: 90
+
+  # ------------------------------------------------------------------
+  # Job 4/5: publish binaries to ghcr.io (manual dispatch only).
+  # Rebuilds one image per openEuler tag around the binaries uploaded
+  # by build-test and pushes to ghcr.io/<repo>:verify-<tag> — the
+  # renamed successor of the historical 'opendcdiag-arm' package.
+  # Container jobs have no Docker daemon, so this runs on a plain VM.
+  # ------------------------------------------------------------------
+  publish-image:
+    needs: build-test
+    if: >-
+      always() &&
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.publish_image == 'true' &&
+      needs.build-test.result == 'success'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        include:
+          - { image_tag: 20.03-lts,     tag_safe: 20-03-lts }
+          - { image_tag: 20.03-lts-sp1, tag_safe: 20-03-lts-sp1 }
+          - { image_tag: 20.03-lts-sp2, tag_safe: 20-03-lts-sp2 }
+          - { image_tag: 20.03-lts-sp3, tag_safe: 20-03-lts-sp3 }
+          - { image_tag: 20.03-lts-sp4, tag_safe: 20-03-lts-sp4 }
+          - { image_tag: 22.03-lts,     tag_safe: 22-03-lts }
+          - { image_tag: 22.03-lts-sp1, tag_safe: 22-03-lts-sp1 }
+          - { image_tag: 22.03-lts-sp2, tag_safe: 22-03-lts-sp2 }
+          - { image_tag: 22.03-lts-sp3, tag_safe: 22-03-lts-sp3 }
+          - { image_tag: 22.03-lts-sp4, tag_safe: 22-03-lts-sp4 }
+          - { image_tag: 24.03-lts,     tag_safe: 24-03-lts }
+          - { image_tag: 24.03-lts-sp1, tag_safe: 24-03-lts-sp1 }
+          - { image_tag: 24.03-lts-sp2, tag_safe: 24-03-lts-sp2 }
+          - { image_tag: 24.03-lts-sp3, tag_safe: 24-03-lts-sp3 }
+          - { image_tag: 24.03-lts-sp4, tag_safe: 24-03-lts-sp4 }
+    steps:
+      - name: Download binary for ${{ matrix.image_tag }}
+        uses: actions/download-artifact@v7
+        with:
+          name: stress-ng-${{ matrix.tag_safe }}
+
+      - name: Build and push to ghcr.io
+        run: |
+          set -eux
+          ct="$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
+          echo "${GITHUB_TOKEN}" | docker login "$REGISTRY" -u "${GITHUB_ACTOR}" --password-stdin
+          printf 'FROM openeuler/openeuler:%s\nCOPY stress-ng /usr/bin/stress-ng\nENTRYPOINT ["/usr/bin/stress-ng"]\nCMD ["--version"]\n' \
+            "${{ matrix.image_tag }}" > Dockerfile.verify
+          docker build -t "$REGISTRY/$ct:verify-${{ matrix.image_tag }}" -f Dockerfile.verify .
+          docker push "$REGISTRY/$ct:verify-${{ matrix.image_tag }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ------------------------------------------------------------------
+  # Job 5/5: final aggregate status.
+  # The workflow is green only if all 15 matrix entries ran AND none of
+  # them failed. Queries the GitHub API for per-matrix-entry results so
+  # a partial matrix (e.g. runner capacity) is also caught.
+  # ------------------------------------------------------------------
+  final-status:
+    needs: [build-test, benchmark-compare, publish-image]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate 15-image results
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          # list this run's build-test jobs via the API (works for matrix jobs)
+          ids="$(gh api repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs \
+                 --jq '.jobs[] | select(.name | startswith("build-test")) | .conclusion')"
+          total="$(echo "$ids" | wc -l)"
+          ok="$(echo "$ids" | grep -c '^success$' || true)"
+          echo "build-test matrix entries: total=$total success=$ok"
+          {
+            echo "# Multi-OS verify summary"
+            echo
+            echo "- build-test: **${{ needs.build-test.result }}** ($ok/$total matrix entries succeeded)"
+            echo "- benchmark-compare: **${{ needs.benchmark-compare.result }}**"
+            echo "- publish-image: **${{ needs.publish-image.result || 'skipped' }}**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$total" -ne 15 ]; then
+            echo "::error::expected 15 matrix entries, got $total (runaway or cancelled?)"
+            exit 1
+          fi
+          if [ "$ok" -ne 15 ]; then
+            echo "::error::only $ok/15 images succeeded"
+            exit 1
+          fi
+          echo "All 15 image jobs succeeded."
