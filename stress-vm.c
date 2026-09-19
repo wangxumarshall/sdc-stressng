@@ -19,6 +19,8 @@
  *
  */
 #include "stress-ng.h"
+#include "core-bitgen.h"
+#include "core-bitops.h"
 #include "core-asm-generic.h"
 #include "core-asm-x86.h"
 #include "core-attribute.h"
@@ -1086,6 +1088,111 @@ static size_t TARGET_CLONES stress_vm_prime_incdec(const stress_vm_info_t *info)
  *	forward swap and then reverse swap chunks of memory
  *	and see that nothing got corrupted.
  */
+/*
+ *  stress_vm_rand_offset()
+ *	dense random-offset writes of core-bitgen patterns, then the
+ *	same-order re-read verify (mutation plan P7: vm's methods touch
+ *	sequentially from offset 0 — galpat/rowhammer are the only
+ *	random-offset ones and they are sparse, 1 bit per 4KB).  Pages
+ *	are drawn without replacement (full Fisher-Yates) so no page is
+ *	written twice, which would desynchronise the fill/verify
+ *	streams.
+ */
+static size_t TARGET_CLONES stress_vm_rand_offset(const stress_vm_info_t *info)
+{
+	const size_t page_sz = 4096;
+	const size_t pages = info->buf_sz / page_sz;
+	const size_t touch = pages / 2;		/* dense: half the pages */
+	register uint64_t c = stress_bogo_get(info->args);
+	stress_bitgen_t bg, bg_verify;
+	size_t *order;
+	size_t i;
+	size_t bit_errors = 0;
+
+	if (touch < 2)
+		return 0;	/* region too small for random offsets */
+
+	if ((order = (size_t *)calloc(pages, sizeof(*order))) == NULL) {
+		pr_fail("%s: calloc failed on vm_rand_offset\n", info->args->name);
+		return 0;
+	}
+
+	stress_mwc_reseed();
+	for (i = 0; i < pages; i++)
+		order[i] = i;
+	for (i = pages - 1; i > 0; i--) {
+		const size_t j = stress_mwc64modn(i + 1);
+		const size_t t = order[i];
+
+		order[i] = order[j];
+		order[j] = t;
+	}
+
+	stress_bitgen_init(&bg);
+	(void)shim_memcpy(&bg_verify, &bg, sizeof(bg_verify));
+
+	/* fill: bitgen stream over each touched page, dense random order */
+	{
+		register uint8_t *ptr;
+		uint64_t c_local = c;
+
+		(void)c_local;
+		for (i = 0; i < touch; i++) {
+			ptr = (uint8_t *)info->buf + (order[i] * page_sz);
+			{
+				size_t b;
+
+				for (b = 0; b < page_sz; b += 8) {
+					const uint64_t v = stress_bitgen_u64(&bg);
+					const size_t n = (page_sz - b < 8) ? page_sz - b : 8;
+					size_t j2;
+
+					for (j2 = 0; j2 < n; j2++)
+						ptr[b + j2] = (uint8_t)(v >> (8 * j2));
+				}
+			}
+		}
+	}
+
+	stress_bogo_set(info->args, c + touch);
+
+	/* verify: identical stream, identical order */
+	for (i = 0; i < touch; i++) {
+		register const uint8_t *ptr =
+			(const uint8_t *)info->buf + (order[i] * page_sz);
+		size_t b;
+
+		for (b = 0; b < page_sz; b += 8) {
+			const uint64_t v = stress_bitgen_u64(&bg_verify);
+			const size_t n = (page_sz - b < 8) ? page_sz - b : 8;
+			size_t j2;
+
+			for (j2 = 0; j2 < n; j2++) {
+				const uint8_t expected = (uint8_t)(v >> (8 * j2));
+
+				if (UNLIKELY(ptr[b + j2] != expected)) {
+					const uint64_t diff = expected ^ ptr[b + j2];
+
+					pr_fail("%s: rand-offset data "
+						"difference at page %zu offset "
+						"%zu, expected 0x%2.2x, actual "
+						"0x%2.2x (%" PRIu64 " bits "
+						"flipped)\n",
+						info->args->name, order[i],
+						b + j2, expected,
+						ptr[b + j2],
+						(uint64_t)stress_bitops_popcount64(diff));
+					bit_errors++;
+					/* keep scanning for more errors */
+				}
+			}
+		}
+	}
+
+	free(order);
+	return bit_errors;
+}
+
 static size_t TARGET_CLONES stress_vm_swap(const stress_vm_info_t *info)
 {
 	const size_t chunk_sz = 64;
@@ -3553,6 +3660,7 @@ static const stress_vm_method_info_t vm_methods[] = {
 	{ "prime-gray-1",	stress_vm_prime_gray_one },
 	{ "prime-incdec",	stress_vm_prime_incdec },
 	{ "rand-set",		stress_vm_rand_set },
+	{ "rand-offset",		stress_vm_rand_offset },
 	{ "rand-sum",		stress_vm_rand_sum },
 	{ "read64",		stress_vm_read64 },
 	{ "ror",		stress_vm_ror },
