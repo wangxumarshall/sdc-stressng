@@ -43,10 +43,14 @@ permissions:
 
 jobs:
   # ------------------------------------------------------------------
-  # Job 1/5: fail-fast manifest pre-check.
+  # Job 1/6: fail-fast manifest pre-check.
   # Verifies all 15 tags resolve in Docker Hub before spending 15
   # parallel container slots, so a typo'd or EOL-removed tag aborts
   # the run in ~30s instead of after minutes of setup.
+  # Each query is retried: anonymous manifest lookups are rate-limited
+  # by Docker Hub and a transient 429 would otherwise kill the whole
+  # run (observed for two different sp1 tags in run 35426274247 —
+  # both tags demonstrably exist).
   # ------------------------------------------------------------------
   manifest-check:
     runs-on: ubuntu-latest
@@ -56,10 +60,17 @@ jobs:
           set -eu
           rc=0
           for tag in $IMAGE_TAGS; do
-            if docker manifest inspect openeuler/openeuler:${tag} > /dev/null 2>&1; then
-              echo "OK  openeuler/openeuler:${tag}"
-            else
-              echo "::error::missing openeuler/openeuler:${tag} — tag renamed or removed upstream?"
+            ok=0
+            for attempt in 1 2 3 4 5; do
+              if docker manifest inspect openeuler/openeuler:${tag} > /dev/null 2>&1; then
+                echo "OK  openeuler/openeuler:${tag} (attempt $attempt)"
+                ok=1
+                break
+              fi
+              sleep $((attempt * 5))
+            done
+            if [ "$ok" != 1 ]; then
+              echo "::error::missing openeuler/openeuler:${tag} after 5 attempts — tag renamed or removed upstream, or Hub rate-limiting"
               rc=1
             fi
           done
