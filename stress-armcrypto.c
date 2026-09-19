@@ -781,10 +781,12 @@ static int stress_armcrypto(stress_args_t *args)
 		return EXIT_NO_RESOURCE;
 	}
 
-	/* deterministic pseudo-random input data */
+	/* pseudo-random input data, seeded per worker: the hardware
+	 * kernels and the software golden references both consume the
+	 * same crypto_in[] within a run, so verification is unaffected
+	 * by the seed — but the crypto datapaths now see different
+	 * operands every run instead of one hardcoded 2 KiB pattern */
 	{
-		stress_mwc_seed_set(0x5eed1234, 0xabcd9876);
-
 		for (i = 0; i < SIZEOF_ARRAY(crypto_in); i++) {
 			const uint32_t lo = stress_mwc32();
 			const uint32_t hi = stress_mwc32();

@@ -363,17 +363,29 @@ static int OPTIMIZE3 stress_cpu_rand(const char *name)
 {
 	int i;
 	uint32_t i_sum = 0;
-	const uint32_t sum = 0xc253698c;
+	uint32_t mwc_w, mwc_z, sum;
 
-	stress_mwc_seed_default();
+	/* live stream (per-run operands); verify replays the saved
+	 * seed to recompute the golden sum — was locked to the default
+	 * seed with a compile-time constant sum */
+	stress_mwc_seed_get(&mwc_w, &mwc_z);
 PRAGMA_UNROLL_N(8)
 	for (i = 0; LIKELY(i < 16384); i++)
 		i_sum += stress_mwc32();
+	sum = i_sum;
 
-	if ((g_opt_flags & OPT_FLAGS_VERIFY) && (i_sum != sum)) {
-		pr_fail("%s: rand error detected, failed sum of "
-			"pseudo-random values\n", name);
-		return EXIT_FAILURE;
+	if (g_opt_flags & OPT_FLAGS_VERIFY) {
+		i_sum = 0;
+		stress_mwc_seed_set(mwc_w, mwc_z);
+PRAGMA_UNROLL_N(8)
+		for (i = 0; LIKELY(i < 16384); i++)
+			i_sum += stress_mwc32();
+
+		if (i_sum != sum) {
+			pr_fail("%s: rand error detected, failed sum of "
+				"pseudo-random values\n", name);
+			return EXIT_FAILURE;
+		}
 	}
 	return EXIT_SUCCESS;
 }
@@ -834,20 +846,32 @@ PRAGMA_UNROLL_N(8)
 /*
  *  Generic int stressor macro
  */
-#define STRESS_CPU_INT(type, sz, int_a, int_b, int_c1, int_c2, int_c3)	\
+/*
+ *  Generic int stressor macro.
+ *
+ *  Operands were historically locked to the compile-time default MWC
+ *  seed so that a_final/b_final could be compile-time constants —
+ *  making the int8..int128 "random" streams bit-identical on every
+ *  run and every machine.  Now a/b start from the live per-worker
+ *  stream (differs per run, --seed reproducible) and verification
+ *  replays the identical seed to recompute the golden finals, so
+ *  the datapaths finally see varied operands with unchanged verify
+ *  semantics.
+ */
+#define STRESS_CPU_INT(type, sz, int_c1, int_c2, int_c3)		\
 static int OPTIMIZE3 TARGET_CLONES stress_cpu_int ## sz(const char *name)\
 {								\
 	const type mask = (type)~(type)0;			\
-	const type a_final = int_a;				\
-	const type b_final = int_b;				\
 	const type c1 = int_c1 & mask;				\
 	const type c2 = int_c2 & mask;				\
 	const type c3 = int_c3 & mask;				\
 	register type a;					\
 	register type b;					\
+	type a_final = 0, b_final = 0;				\
+	uint32_t mwc_w, mwc_z;					\
 	int i;							\
 								\
-	stress_mwc_seed_default();				\
+	stress_mwc_seed_get(&mwc_w, &mwc_z);			\
 	a = (type)stress_mwc32();				\
 	b = (type)stress_mwc32();				\
 								\
@@ -855,12 +879,26 @@ static int OPTIMIZE3 TARGET_CLONES stress_cpu_int ## sz(const char *name)\
 		INT_OPS(type, a, b, c1, c2, c3)			\
 	}							\
 								\
-	if ((g_opt_flags & OPT_FLAGS_VERIFY) &&			\
-	    ((a != a_final) || (b != b_final)))	{		\
-		pr_fail("%s: int" # sz " error detected, " 	\
-			"failed int" # sz 			\
-			" math operations\n", name);		\
-		return EXIT_FAILURE;				\
+	if (g_opt_flags & OPT_FLAGS_VERIFY) {			\
+		/* golden replay: restore the pre-draw seed so the	\
+		 * replayed a/b draws and all in-loop mwc32 calls	\
+		 * follow the identical stream */			\
+		a_final = a;					\
+		b_final = b;					\
+		stress_mwc_seed_set(mwc_w, mwc_z);		\
+		a = (type)stress_mwc32();				\
+		b = (type)stress_mwc32();				\
+								\
+		for (i = 0; i < 1000; i++) {			\
+			INT_OPS(type, a, b, c1, c2, c3)		\
+		}						\
+								\
+		if ((a != a_final) || (b != b_final)) {		\
+			pr_fail("%s: int" # sz " error detected, " \
+				"failed int" # sz 			\
+				" math operations\n", name);	\
+			return EXIT_FAILURE;			\
+		}						\
 	}							\
 	return EXIT_SUCCESS;					\
 }								\
@@ -869,25 +907,19 @@ static int OPTIMIZE3 TARGET_CLONES stress_cpu_int ## sz(const char *name)\
 #if defined(HAVE_INT128_T)
 
 STRESS_CPU_INT(__uint128_t, 128,
-	STRESS_UINT128(0x132af604d8b9183a,0x5e3af8fa7a663d74),
-	STRESS_UINT128(0x62f086e6160e4e,0xd84c9f800365858),
 	STRESS_UINT128(C1, C1), STRESS_UINT128(C2, C2), STRESS_UINT128(C3, C3))
 #endif
 
 STRESS_CPU_INT(uint64_t, 64, \
-	0x13f7f6dc1d79197cULL, 0x1863d2c6969a51ceULL,
 	C1, C2, C3)
 
 STRESS_CPU_INT(uint32_t, 32, \
-	0x1ce9b547UL, 0xa24b33aUL,
 	C1, C2, C3)
 
 STRESS_CPU_INT(uint16_t, 16, \
-	0x1871, 0x07f0,
 	C1, C2, C3)
 
 STRESS_CPU_INT(uint8_t, 8, \
-	0x12, 0x1a,
 	C1, C2, C3)
 
 #define FLOAT_THRESH(x, type)	x = (type)		\
@@ -1203,21 +1235,24 @@ STRESS_CPU_COMPLEX(complex long double, l, complex_long_double, shim_csinl, shim
 	} while (0)
 
 /*
- *  Generic integer and floating point stressor macro
+ *  Generic integer and floating point stressor macro.
+ *  Same live-stream + golden-replay unlock as STRESS_CPU_INT: the
+ *  r1/r2 float operands and the a/b integer operands now come from
+ *  the per-worker stream, and verify replays the saved seed.
  */
 #define STRESS_CPU_INT_FP(inttype, sz, ftype, fp_name, 		\
-	int_a, int_b, int_c1, int_c2, int_c3, f_sinf, f_cosf)	\
+	int_c1, int_c2, int_c3, f_sinf, f_cosf)		\
 static int OPTIMIZE3 TARGET_CLONES stress_cpu_int ## sz ## _ ## fp_name(const char *name)\
 {								\
 	int i;							\
 	inttype a;						\
 	inttype b;						\
+	inttype a_final = 0, b_final = 0;			\
 	const inttype mask = (inttype)~0;			\
-	const inttype a_final = int_a;				\
-	const inttype b_final = int_b;				\
 	const inttype c1 = int_c1 & mask;			\
 	const inttype c2 = int_c2 & mask;			\
 	const inttype c3 = int_c3 & mask;			\
+	uint32_t mwc_w, mwc_z;					\
 	const uint32_t r1 = stress_mwc32(),			\
 		       r2 = stress_mwc32();			\
 	ftype flt_a = (ftype)0.18728L;				\
@@ -1226,7 +1261,7 @@ static int OPTIMIZE3 TARGET_CLONES stress_cpu_int ## sz ## _ ## fp_name(const ch
 	ftype flt_d = (ftype)0.0;				\
 	ftype flt_r;						\
 								\
-	stress_mwc_seed_default();				\
+	stress_mwc_seed_get(&mwc_w, &mwc_z);			\
 	a = stress_mwc32();					\
 	b = stress_mwc32();					\
 								\
@@ -1235,12 +1270,26 @@ static int OPTIMIZE3 TARGET_CLONES stress_cpu_int ## sz ## _ ## fp_name(const ch
 			flt_d,f_sinf, f_cosf, inttype,		\
 			a, b, c1, c2, c3);			\
 	}							\
-	if ((g_opt_flags & OPT_FLAGS_VERIFY) &&			\
-	    ((a != a_final) || (b != b_final)))	{		\
-		pr_fail("%s: int" # sz " error detected, "	\
-			"failed int" # sz "" # ftype		\
-			" math operations\n", name);		\
-		return EXIT_FAILURE;				\
+	if (g_opt_flags & OPT_FLAGS_VERIFY) {			\
+		/* golden replay from the pre-draw seed */	\
+		a_final = a;					\
+		b_final = b;					\
+		stress_mwc_seed_set(mwc_w, mwc_z);		\
+		a = stress_mwc32();				\
+		b = stress_mwc32();				\
+								\
+		for (i = 0; i < 1000; i++) {			\
+			INT_FLOAT_OPS(ftype, flt_a, flt_b, 	\
+				flt_c, flt_d, f_sinf, f_cosf, 	\
+				inttype, a, b, c1, c2, c3);	\
+		}						\
+								\
+		if ((a != a_final) || (b != b_final)) {		\
+			pr_fail("%s: int" # sz " error detected, "\
+				"failed int" # sz "" # ftype	\
+				" math operations\n", name);	\
+			return EXIT_FAILURE;			\
+		}						\
 	}							\
 								\
 	flt_r = flt_a + flt_b + flt_c + flt_d;			\
@@ -1249,61 +1298,43 @@ static int OPTIMIZE3 TARGET_CLONES stress_cpu_int ## sz ## _ ## fp_name(const ch
 }
 
 STRESS_CPU_INT_FP(uint32_t, 32, float, float,
-	0x1ce9b547UL, 0xa24b33aUL,
 	C1, C2, C3, shim_sinf, shim_cosf)
 STRESS_CPU_INT_FP(uint32_t, 32, double, double,
-	0x1ce9b547UL, 0xa24b33aUL,
 	C1, C2, C3, shim_sin, shim_cos)
 STRESS_CPU_INT_FP(uint32_t, 32, long double, longdouble,
-	0x1ce9b547UL, 0xa24b33aUL,
 	C1, C2, C3, shim_sinl, shim_cosl)
 STRESS_CPU_INT_FP(uint64_t, 64, float, float,
-	0x13f7f6dc1d79197cULL, 0x1863d2c6969a51ceULL,
 	C1, C2, C3, shim_sinf, shim_cosf)
 STRESS_CPU_INT_FP(uint64_t, 64, double, double,
-	0x13f7f6dc1d79197cULL, 0x1863d2c6969a51ceULL,
 	C1, C2, C3, shim_sin, shim_cos)
 STRESS_CPU_INT_FP(uint64_t, 64, long double, longdouble,
-	0x13f7f6dc1d79197cULL, 0x1863d2c6969a51ceULL,
 	C1, C2, C3, shim_sinl, shim_cosl)
 
 #if defined(HAVE_INT128_T)
 STRESS_CPU_INT_FP(__uint128_t, 128, float, float,
-	STRESS_UINT128(0x132af604d8b9183a,0x5e3af8fa7a663d74),
-	STRESS_UINT128(0x0062f086e6160e4e,0x0d84c9f800365858),
 	STRESS_UINT128(C1, C1), STRESS_UINT128(C2, C2), STRESS_UINT128(C3, C3),
 	shim_sinf, shim_cosf)
 STRESS_CPU_INT_FP(__uint128_t, 128, double, double,
-	STRESS_UINT128(0x132af604d8b9183a,0x5e3af8fa7a663d74),
-	STRESS_UINT128(0x0062f086e6160e4e,0x0d84c9f800365858),
 	STRESS_UINT128(C1, C1), STRESS_UINT128(C2, C2), STRESS_UINT128(C3, C3),
 	shim_sin, shim_cos)
 STRESS_CPU_INT_FP(__uint128_t, 128, long double, longdouble,
-	STRESS_UINT128(0x132af604d8b9183a,0x5e3af8fa7a663d74),
-	STRESS_UINT128(0x0062f086e6160e4e,0x0d84c9f800365858),
 	STRESS_UINT128(C1, C1), STRESS_UINT128(C2, C2), STRESS_UINT128(C3, C3),
 	shim_sinl, shim_cosl)
 #if defined(HAVE_Decimal32) &&	\
     !defined(HAVE_COMPILER_CLANG)
 STRESS_CPU_INT_FP(__uint128_t, 128, _Decimal32, decimal32,
-	STRESS_UINT128(0x132af604d8b9183a,0x5e3af8fa7a663d74),
-	STRESS_UINT128(0x0062f086e6160e4e,0x0d84c9f800365858),
 	STRESS_UINT128(C1, C1), STRESS_UINT128(C2, C2), STRESS_UINT128(C3, C3),
 	(_Decimal32)shim_sinDecimal32, (_Decimal32)shim_cosDecimal32)
 #endif
 #if defined(HAVE_Decimal64) &&	\
     !defined(HAVE_COMPILER_CLANG)
 STRESS_CPU_INT_FP(__uint128_t, 128, _Decimal64, decimal64,
-	STRESS_UINT128(0x132af604d8b9183a,0x5e3af8fa7a663d74),
-	STRESS_UINT128(0x0062f086e6160e4e,0x0d84c9f800365858),
 	STRESS_UINT128(C1, C1), STRESS_UINT128(C2, C2), STRESS_UINT128(C3, C3),
 	(_Decimal64)shim_sinDecimal64, (_Decimal64)shim_cosDecimal64)
 #endif
 #if defined(HAVE_Decimal128) &&	\
     !defined(HAVE_COMPILER_CLANG)
 STRESS_CPU_INT_FP(__uint128_t, 128, _Decimal128, decimal128,
-	STRESS_UINT128(0x132af604d8b9183a,0x5e3af8fa7a663d74),
-	STRESS_UINT128(0x0062f086e6160e4e,0x0d84c9f800365858),
 	STRESS_UINT128(C1, C1), STRESS_UINT128(C2, C2), STRESS_UINT128(C3, C3),
 	(_Decimal128)shim_sinDecimal128, (_Decimal128)shim_cosDecimal128)
 #endif
