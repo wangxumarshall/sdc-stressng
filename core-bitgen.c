@@ -321,6 +321,22 @@ uint64_t stress_bitgen_hamming64(stress_bitgen_t *bg, const unsigned int target_
 }
 
 /*
+ *  stress_bitgen_skip()
+ *	consume len bytes from the stream (same call sequence the fill
+ *	would make) discarding the output.
+ */
+void stress_bitgen_skip(stress_bitgen_t *bg, const size_t len)
+{
+	size_t i;
+	const size_t words = (len + 7) / 8;
+
+	/* fill_pattern() draws one u64 per 8 bytes; mirror that exactly
+	 * so the streams stay aligned */
+	for (i = 0; i < words; i++)
+		(void)stress_bitgen_u64(bg);
+}
+
+/*
  *  stress_bitgen_u64()
  *	mode-mixed default operand: 1/3 bandwalk, 1/3 edge, 1/3
  *	jittered uniform (the uniform third keeps wide coverage so the

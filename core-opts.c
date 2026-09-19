@@ -1075,6 +1075,11 @@ const struct option stress_long_options[] = {
 	{ "operand-var-method",	1,	NULL,	OPT_operand_var_method },
 	{ "operand-var-ops",	1,	NULL,	OPT_operand_var_ops },
 
+	{ "addrspace",		1,	NULL,	OPT_addrspace },
+	{ "addrspace-method",	1,	NULL,	OPT_addrspace_method },
+	{ "addrspace-bytes",	1,	NULL,	OPT_addrspace_bytes },
+	{ "addrspace-ops",	1,	NULL,	OPT_addrspace_ops },
+
 	{ "open",		1,	NULL,	OPT_open },
 	{ "open-fd",		0,	NULL,	OPT_open_fd },
 	{ "open-max",		1,	NULL,	OPT_open_max },

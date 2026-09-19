@@ -126,4 +126,12 @@ uint64_t stress_bitgen_hamming64(stress_bitgen_t *bg, const unsigned int target_
  */
 uint64_t stress_bitgen_u64(stress_bitgen_t *bg);
 
+/*  stress_bitgen_skip()
+ *	advance the stream by len bytes worth of generation without
+ *	producing output — lets a verifier step over regions it cannot
+ *	read (e.g. PROT_NONE holes) while keeping the byte-sequential
+ *	stream aligned with the fill pass.
+ */
+void stress_bitgen_skip(stress_bitgen_t *bg, const size_t len);
+
 #endif /* CORE_BITGEN_H */

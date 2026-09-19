@@ -25,6 +25,7 @@
  */
 
 #define STRESSORS(MACRO)	\
+	MACRO(addrspace) 	\
 	MACRO(access) 		\
 	MACRO(acl)		\
 	MACRO(acct)		\

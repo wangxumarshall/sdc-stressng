@@ -1999,6 +1999,12 @@ typedef enum {
 	OPT_operand_var,
 	OPT_operand_var_method,
 	OPT_operand_var_ops,
+
+	/* addrspace (mutation plan P3) */
+	OPT_addrspace,
+	OPT_addrspace_method,
+	OPT_addrspace_bytes,
+	OPT_addrspace_ops,
 } stress_op_t;
 
 #endif

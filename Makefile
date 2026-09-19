@@ -521,6 +521,7 @@ CORE_SRC_GEN = \
 #  Stressors
 #
 STRESS_SRC = \
+	stress-addrspace.c \
 	stress-access.c \
 	stress-acl.c \
 	stress-acct.c \
