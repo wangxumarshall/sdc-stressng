@@ -416,19 +416,19 @@ jobs:
         run: |
           set -eu
           mkdir -p matrix
-          # one file per matrix entry, named by its tag_safe component
+          # one file per matrix entry, named by its image tag
           gh api --paginate repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs \
             --jq '.jobs[] | select(.name | startswith("build-test (")) | "\(.id) \(.name)"' \
           | while read -r job_id job_name; do
               tag=$(echo "$job_name" | sed -E 's/.*\(([^,]+),.*/\1/')
               echo "scraping $tag (job $job_id)"
+              # job-log lines are timestamp-prefixed; match anywhere in
+              # the line and strip the prefix down to the CI-MATRIX token
               gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${job_id}/logs" \
                 --allow-escape-sequences 2>/dev/null \
-                | grep -a '^CI-MATRIX' > "matrix/${tag}.matrix" || true
-              wc -l < "matrix/${tag}.matrix" || true
+                | grep -ao 'CI-MATRIX.*' > "matrix/${tag}.matrix" || true
+              echo "  $(wc -l < "matrix/${tag}.matrix") matrix lines"
             done
-          # the last column of the job name is the tag_safe value, which
-          # matches the file names used above
 
       - name: Render per-stressor matrix
         run: |
