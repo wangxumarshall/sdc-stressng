@@ -96,71 +96,9 @@ CP1（Kunpeng 950 7592C，2 socket / 95C×2T=190 物理核 / 382 逻辑 CPU / SV
 
 ## Next Step
 
-**Phase 8（2026-09-17 第八轮）进行中**：GitHub Actions 多 OS 自动化验证（15 个 openEuler LTS 镜像 + 全量功能测试）。计划见下方 Phase 8 节。当前：写工作流文件 `.github/workflows/multi-os-verify.yml`。
+第七轮（2026-09-17）**全部 12 patch 实施完成**：11 commits 已推 port/arm64-saturation-sdc 分支（d9381762c..df6f448b3）。本机全功能验证 + QEMU 用户态仿真（-cpu max）SVE/SVE2/SM3/SM4/SHA3/RNDR 模拟验证全通过。SVE 动态开关（HWCAP 运行时 + target 属性编译隔离）贯穿全部新代码。
 
-## Phases（Phase 8 新增）
-
-### Phase 8: GitHub Actions 多 OS 自动化验证 — in_progress
-- [x] 恢复历史规划文件（Phase 1-7 已完成并合并 main）
-- [x] 盘点现有 CI（ci-builds.yml / container-image-{stable,edge}.yml；上游 docker workflow 基于分支 master，本仓 main）
-- [x] 核实 stress-ng 测试基建：`--sequential N`（逐个跑全部 stressor，默认 60s/个，`--timeout` 可调）、`--permute`、`--random`、`-x/--exclude`、`--verify`、`-Y/--yaml`、62 个 `*-method` 选项（`all` 关键字普遍支持）
-- [x] 核实 Makefile：SANITIZE=1 UBSAN 全家桶已内建；`all: build_info config.h stress-ng`；DEBUG=1
-- [x] Docker Hub/ghcr 网络在开发机被封锁（curl SSL rc=35）→ 15 个 tag 的存在性改为工作流内 fail-fast `manifest inspect` 预检
-- [x] 本机构建 + 探测 stress-ng 输出格式：**全量 sequential 实测通过**（319 passed / 74 skipped / 0 failed，`--timeout 2` 全程 15m50s）；退出码 0；`-x` 是逗号纯名列表；`failed: 0` 行是断言锚点；rc: fail=1/无资源=2
-- [x] 编写 `.github/workflows/multi-os-verify.yml`（5 jobs：manifest-check → build-test×15 → benchmark-compare → publish-image → final-status）
-- [x] 编写 `scripts/ci-verify-log.sh`（日志断言：failed:0/completed/rc 分类；truncate 与 fail 路径已测）
-- [x] 编写 `scripts/ci-method-sweep.sh`（62 个 *-method 全参数遍历；修了 while-read 子 shell 计数 bug；rc=3 EXIT_NO_RESOURCE 归类为环境受限非失败——cyclic 需 RT 调度）
-- [x] 本机 method sweep 实测：pass=50 skip=26 nolimit=6 fail=0（第一轮 pass=43/92）
-- [x] **发现并修复**：STATIC=1+SANITIZE=1 链接失败（无 libubsan.a）→ 工作流只用 SANITIZE=1 动态链接
-- [x] YAML 结构验证（python yaml.safe_load 通过；15+15 matrix 一致性检查通过）
-- [x] sweep probe 消退问题排查：**假象**——sweep2 运行中被并行的 make clean 删了二进制；干净复测（sweep3）：**pass=126 skip=2 nolimit=6 fail=0 RC=0**（2 skip = dfp 无 libdfp、plugin 无插件目录，均诚实跳过）
-- [x] SANITIZE=1 复测：本机 libubsan.so 断链（openEuler 打包问题）→ 工作流构建步骤已设计为自动降级 plain + ::warning
-- [ ] 提交推送，在 GitHub 上触发首跑并修复问题
-
-### Phase 8 工作流设计（决策记录）
-
-**输入约束（用户需求，不可变）**：
-1. 15 个 openEuler LTS 镜像：20.03-lts{,-sp1..sp4}、22.03-lts{,-sp1..sp4}、24.03-lts{,-sp1..sp4}（=5+5+5）
-2. 每个镜像构建 1 个 stress-ng 二进制 → 15 个二进制
-3. 构建后分别跑：全量测试用例全量参数功能测试（消 bug 为目标）
-4. GitHub Actions **原生 `container:` 属性**模式（作业直接跑在目标镜像内）
-5. 性能优化：依赖包缓存等
-6. 基准测试：不同 OS 下二进制性能对比
-7. 策略：确保 15 个镜像全部执行完（fail-fast 关闭）+ 并行作业
-8. ghcr.io 镜像：把历史 `opendcdiag-arm` 改名为 `sdc-stressng` 并使用该镜像（登录用 GITHUB_TOKEN，无需 secrets）
-9. 每天早上 12 点触发（cron 12:00 local → UTC `0 4 * * *` 北京时间正午）
-10. 兼容性：openEuler 20.03/22.03/24.03 的 dnf/glibc/gcc 差异
-
-**架构（matrix job + 汇总 job）**：
-```
-manifest-check (fail-fast 预检 15 tag)
-  → build-test (matrix ×15, fail-fast: false, container: openeuler/openeuler:<tag>)
-      ├─ dnf 缓存 (cache dnf basedir)
-      ├─ make -j2 (SANITIZE=1 UBSAN 构建)
-      ├─ smoke: --version/--buildinfo
-      ├─ 全量功能测试: --sequential 1 --timeout 12s --verify -x <已知不可跑清单> 
-      ├─ 方法级全参数: cpu-method/vm-method/... all 循环
-      ├─ 基准采样: cpu/fma/memrate/memcpy 定长跑 -Y yaml
-      └─ upload-artifact: 二进制 + 测试报告 + 基准 yaml
-  → benchmark-compare (needs: build-test, if: always())
-      下载 15 份基准 yaml → 汇总 markdown 报告表 → artifact + job summary
-  → final-status (needs: [build-test, benchmark-compare], if: always())
-      校验 15/15 作业完成、聚合结论（fail 不掩盖）
-```
-
-**关键兼容性决策**：
-| 问题 | 决策 |
-|---|---|
-| 20.03 dnf 源 EOL/404 | 20.03 系列用 openEuler 归档源（archives.openeuler.org）替换 repo 文件；dnf makecache 失败不 fatal（基础镜像已带 gcc/make） |
-| 20.03 gcc 7.3 vs 24.03 gcc 12 | SANITIZE=1 部分检查项 gcc7 不支持 → Makefile 的 `cc_supports_flag` 自动过滤，无需干预 |
-| runner 架构 | openEuler 官方镜像同时有 x86_64/aarch64 → GitHub arm64 runner 直接原生跑 aarch64 版（与目标 Kunpeng 场景一致，且免 QEMU） |
-| 权限 | container 模式默认 root → stressor 可跑面最大；`--oomable` 关 |
-| "全量参数"务实解释 | 每镜像时长预算 ~45-60min：`--sequential` 全 stressor 短 timeout + 62 个 method 选项 `all` 遍历 = 用例×参数双全量 |
-| 15 镜像全跑完 | matrix `fail-fast: false` + `if: always()` 链 + final-status 聚合断言 15/15 |
-| ghcr 登录 | `docker/login-action@v3` + GITHUB_TOKEN（packages:write），推 `ghcr.io/wangxumarshall/sdc-stressng:verify-<tag>`（改名自 opendcdiag-arm） |
-| 缓存 | `actions/cache` key=dnf-<tag>-<lockfile hash>（/var/cache/dnf + /var/lib/dnf）；源码层不缓存（make 全量重编正是测试目的） |
-
-**历史规划（Phase 1-7 已完成）见下方归档**
+**真机验证方案已产出**：`docs/superpowers/plans/2026-09-17-kunpeng950-real-machine-verification.md`（commit f87464509）——V1-V10 十项验证目标（逐项标注"为什么只能真机"+ 验收判据）、阶段 0 取证、双构建 A/B 策略、SDC 协同漏斗、结果模板、停机取证条件、风险回退。方案中全部 13 条命令/旗标已在本机二进制上逐条 parse-verified。下一步：CP1 真机执行并回填结果。
 
 ### Phase 7: 对标 x86、强化 ARM64 饱和压测研究（2026-09-16 第六轮） — complete
 - [x] R1 x86 专属能力基线盘点（smi/rdrand/x86cpuid/tsc/ipsec-mb 完整 stressor + target_clones/regs/vnni/cache 方法级 + rapl/ignite-cpu 框架级；报告 docs/superpowers/research/2026-09-16-r1-x86-baseline-inventory.md）

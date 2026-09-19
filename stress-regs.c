@@ -2257,7 +2257,7 @@ do {			\
  *  (GCC 10.3, the openEuler 22.03 toolchain, rejects it).  Toolchains
  *  below GCC 10 get no SVE register exercise (NEON path remains).
  */
-#define REGS_SVE_TARGET __attribute__((target("arch=armv8.2-a+sve2")))
+#define REGS_SVE_TARGET __attribute__((target("arch=armv8.6-a+sve2")))
 
 REGS_SVE_TARGET
 static void NOINLINE OPTIMIZE0 stress_regs_exercise_sve(stress_args_t *args, register uint64_t v)

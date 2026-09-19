@@ -267,7 +267,7 @@ static const stress_fma_func_t stress_fma_funcs[] = {
 #include <sys/auxv.h>
 #include <asm/hwcap.h>
 
-#define FMA_SVE2_TARGET __attribute__((target("arch=armv8.2-a+sve2")))
+#define FMA_SVE2_TARGET __attribute__((target("arch=armv8.6-a+sve2")))
 
 #define FMA_SVE2_KERNEL_D(name, acc)					\
 FMA_SVE2_TARGET								\
