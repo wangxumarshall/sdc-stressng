@@ -735,6 +735,7 @@ STRESS_SRC = \
 	stress-numacopy.c \
 	stress-oom-pipe.c \
 	stress-opcode.c \
+	stress-operand-var.c \
 	stress-open.c \
 	stress-ovpn.c \
 	stress-pagemove.c \

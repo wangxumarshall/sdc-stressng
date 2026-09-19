@@ -1994,6 +1994,11 @@ typedef enum {
 	OPT_zombie_clone,
 	OPT_zombie_max,
 	OPT_zombie_ops,
+
+	/* operand-var (mutation plan P2) */
+	OPT_operand_var,
+	OPT_operand_var_method,
+	OPT_operand_var_ops,
 } stress_op_t;
 
 #endif

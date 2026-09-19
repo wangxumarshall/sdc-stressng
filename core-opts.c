@@ -1071,6 +1071,10 @@ const struct option stress_long_options[] = {
 	{ "opcode-method",	1,	NULL,	OPT_opcode_method },
 	{ "opcode-ops",		1,	NULL,	OPT_opcode_ops },
 
+	{ "operand-var",	1,	NULL,	OPT_operand_var },
+	{ "operand-var-method",	1,	NULL,	OPT_operand_var_method },
+	{ "operand-var-ops",	1,	NULL,	OPT_operand_var_ops },
+
 	{ "open",		1,	NULL,	OPT_open },
 	{ "open-fd",		0,	NULL,	OPT_open_fd },
 	{ "open-max",		1,	NULL,	OPT_open_max },

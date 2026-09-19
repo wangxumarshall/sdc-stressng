@@ -239,6 +239,7 @@
 	MACRO(numacopy)		\
 	MACRO(oom_pipe)		\
 	MACRO(opcode)		\
+	MACRO(operand_var)	\
 	MACRO(open)		\
 	MACRO(ovpn)		\
 	MACRO(pagemove)		\
