@@ -110,7 +110,18 @@ CP1（Kunpeng 950 7592C，2 socket / 95C×2T=190 物理核 / 382 逻辑 CPU / SV
   - P3 stress-addrspace（地址形状 7 配方+校验，含 malloc 大内存）
   - P4-P8 现有 stressor 加固（memrate/armcrypto种子/fp直合成/vm随机偏移/atomic）
   - P9 文档+编排+CI 自动覆盖
-- [ ] 用户批准后按 P1→P5→P2→P3→P4/P6/P7→P8→P9 实施（每 patch plan→code→verify→commit）
+- [x] **全部 9 patch 实施完成并推送**（fc243c784..04467d611，7 个实现 commit）：
+  - P1 core-bitgen（90c654388）：bandwalk/edge-dict/fp-bit-synthesis/complement/hamming/skip；统计验证 6 项全 PASS（边界命中 100% vs 均匀~0、64 位全覆盖、FP 指数 1/8:1/8:3/4）
+  - P5 种子解锁（39bc27ab1）：cpu int*/rand/int-fp + armcrypto crypto_in 改活流 + golden 种子重放；71 方法 verify 全过，跨运行操作数确实变化
+  - P2 operand-var（72e629f77）：5 方法+all，112.8 万 bogo/2s，故障注入被抓；修了 0 基方法表分派 bug（NULL 调用 SIGSEGV）
+  - P3 addrspace（8efa610ce）：7 配方+all；三个 verify 失步 bug（重复页/重叠 slice/碰撞窗口）全修复；故障注入页级定位
+  - P4 memrate（bbbf6f137）：--memrate-write-pattern 4 模式；带宽无回归（10-11 GB/s 各模式）
+  - P6 fma/vecfp（1e872cdaf）：50% 位型直合成操作数（指数/尾数独立）
+  - P7 vm rand-offset（1fb4004b2）：无放回 Fisher-Yates 密集随机偏移 + bitgen 模式 + 同序校验
+  - P8 atomic（04467d611）：RMW 操作数随机抖动（var 路径）；unshared verify 路径保字面量（恒等式 oracle）
+  - P9 文档编排（04467d611）：man 全条目；sdc-run full 加 --operand-var/--addrspace
+- [x] 回归：9 个触碰 stressor 本机 verify 全过；gcc 7.3（20.03 容器）编译+运行全绿
+- [ ] CI 15 镜像全量验证（run 35449398396 进行中，新 stressor 自动进套件）
 
 > 约束：与第七轮 12 patch（SVE2/饱和压测）正交——本轮聚焦"数据变异"而非"单元饱和"；与 SDCShield 分工不变（stress-ng=扰动器，但变异质量决定激发效率）。
 
