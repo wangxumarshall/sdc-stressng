@@ -845,6 +845,8 @@ const struct option stress_long_options[] = {
 	{ "memrate-flush",	0,	NULL,	OPT_memrate_flush },
 	{ "memrate-method",	1,	NULL,	OPT_memrate_method },
 	{ "memrate-ops",	1,	NULL,	OPT_memrate_ops },
+
+	{ "memrate-write-pattern",	1,	NULL,	OPT_memrate_write_pattern },
 	{ "memrate-rd-mbs",	1,	NULL,	OPT_memrate_rd_mbs },
 	{ "memrate-wr-mbs",	1,	NULL,	OPT_memrate_wr_mbs },
 

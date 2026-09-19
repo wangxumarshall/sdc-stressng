@@ -18,6 +18,7 @@
  *
  */
 #include "stress-ng.h"
+#include "core-bitgen.h"
 #include "core-asm-arm.h"
 #include "core-asm-x86.h"
 #include "core-builtin.h"
@@ -84,6 +85,7 @@ typedef struct {
 	uint64_t memrate_rd_mbs;
 	uint64_t memrate_wr_mbs;
 	size_t memrate_method;
+	size_t memrate_write_pattern;
 	void *start;
 	void *end;
 	bool memrate_discontiguous;
@@ -91,6 +93,66 @@ typedef struct {
 } stress_memrate_context_t;
 
 typedef uint64_t (*stress_memrate_func_t)(const stress_memrate_context_t *context, bool *valid);
+
+/*
+ *  Write byte patterns (mutation plan P4): memrate's write paths
+ *  historically hardcoded 0xaa everywhere — millions of stores per
+ *  second seeing exactly one bit pattern (the operand survey's
+ *  worst offender).  --memrate-write-pattern selects:
+ *    0xaa        the historical default (compat)
+ *    random      per-chunk PRNG value
+ *    bandwalk    core-bitgen band sweep (state persists per
+ *                instance so successive chunks continue the sweep)
+ *    complement  alternating 0x5555.../0xaaaa... (maximal trace
+ *                toggling between chunks, research lever D2)
+ *  The x86 asm stos variants always use 0xaa (immediate operand);
+ *  they only compile where the C paths don't run.
+ */
+typedef enum {
+	MEMRATE_PATTERN_0XAA = 0,
+	MEMRATE_PATTERN_RANDOM,
+	MEMRATE_PATTERN_BANDWALK,
+	MEMRATE_PATTERN_COMPLEMENT,
+} stress_memrate_pattern_t;
+
+static stress_bitgen_t memrate_bg;
+static bool memrate_bg_seeded = false;
+static bool memrate_complement_flip = false;
+
+static const char *stress_memrate_pattern_method(const size_t i)
+{
+	static const char *patterns[] = {
+		"0xaa", "random", "bandwalk", "complement",
+	};
+
+	return (i < SIZEOF_ARRAY(patterns)) ? patterns[i] : NULL;
+}
+
+/*
+ *  memrate_pattern_word()
+ *	the 8-byte value the C write paths store per chunk, per the
+ *	selected pattern.  Called once per chunk (outside the store
+ *	loop) so the per-store cost is unchanged.
+ */
+static inline uint64_t memrate_pattern_word(const size_t pattern)
+{
+	switch ((stress_memrate_pattern_t)pattern) {
+	case MEMRATE_PATTERN_RANDOM:
+		return stress_mwc64();
+	case MEMRATE_PATTERN_BANDWALK:
+		if (UNLIKELY(!memrate_bg_seeded)) {
+			stress_bitgen_init(&memrate_bg);
+			memrate_bg_seeded = true;
+		}
+		return stress_bitgen_bandwalk64(&memrate_bg);
+	case MEMRATE_PATTERN_COMPLEMENT:
+		memrate_complement_flip = !memrate_complement_flip;
+		return memrate_complement_flip ?
+			0x5555555555555555ULL : 0xaaaaaaaaaaaaaaaaULL;
+	default:
+		return 0xaaaaaaaaaaaaaaaaULL;
+	}
+}
 
 typedef struct {
 	const char 	*name;
@@ -447,13 +509,41 @@ STRESS_MEMRATE_READ(64pf, uint64_t, shim_builtin_prefetch)
 STRESS_MEMRATE_READ_RATE(64pf, uint64_t, shim_builtin_prefetch)
 #endif
 
+/*
+ *  memrate_fill_region()
+ *	fill a byte region with the selected pattern (the pattern-word
+ *	bytes replicated); the 0xaa path stays shim_memset for speed.
+ */
+static void memrate_fill_region(
+	const stress_memrate_context_t *context,
+	void *ptr, const size_t len)
+{
+	if (context->memrate_write_pattern == MEMRATE_PATTERN_0XAA) {
+		(void)shim_memset(ptr, 0xaa, len);
+	} else {
+		uint64_t pw = memrate_pattern_word(
+			context->memrate_write_pattern);
+		uint64_t wordbuf[32];
+		size_t i;
+		uint8_t *p = (uint8_t *)ptr;
+
+		for (i = 0; i < SIZEOF_ARRAY(wordbuf); i++)
+			wordbuf[i] = pw;
+		for (i = 0; i + sizeof(wordbuf) <= len;
+		     i += sizeof(wordbuf))
+			(void)memcpy(p + i, wordbuf, sizeof(wordbuf));
+		if (i < len)
+			(void)memcpy(p + i, wordbuf, len - i);
+	}
+}
+
 static uint64_t stress_memrate_memset(
 	const stress_memrate_context_t *context,
 	bool *valid)
 {
 	const size_t size = context->memrate_bytes;
 
-	(void)shim_memset(context->start, 0xaa, size);
+	memrate_fill_region(context, context->start, size);
 
 	*valid = true;
 	return (uint64_t)size / STRESS_KB;
@@ -476,7 +566,7 @@ static uint64_t OPTIMIZE3 stress_memrate_memset_rate(
 
 	t1 = stress_time_now();
 	for (ptr = start; (ptr + chunk_size) < end; ptr += chunk_size) {
-		(void)shim_memset(ptr, 0xaa, chunk_size);
+		memrate_fill_region(context, ptr, chunk_size);
 
 		t2 = stress_time_now();
 		total_dur += dur;
@@ -495,7 +585,7 @@ static uint64_t OPTIMIZE3 stress_memrate_memset_rate(
 	}
 
 	if (end - ptr > 0) {
-		(void)shim_memset(ptr, 0xaa, end - ptr);
+		memrate_fill_region(context, ptr, (size_t)(end - ptr));
 		t2 = stress_time_now();
 		total_dur += dur;
 		dur_remainder = total_dur - (t2 - t1);
@@ -528,9 +618,18 @@ static uint64_t TARGET_CLONES OPTIMIZE3	stress_memrate_write##size(	\
 	register type *ptr;					\
 								\
 	{							\
+		const uint64_t pw =				\
+			memrate_pattern_word(context->memrate_write_pattern); \
 		type vaa;					\
 								\
-		(void)shim_memset(&vaa, 0xaa, sizeof(vaa));	\
+		/* replicate the pattern word's bytes to fill vaa   */ \
+		{						\
+			uint8_t *vp = (uint8_t *)&vaa;		\
+			size_t vi;				\
+			const uint8_t *wp = (const uint8_t *)&pw;	\
+			for (vi = 0; vi < sizeof(vaa); vi++)	\
+				vp[vi] = wp[vi & 7];		\
+		}						\
 		v = vaa;					\
 	}							\
 								\
@@ -575,9 +674,18 @@ static uint64_t TARGET_CLONES OPTIMIZE3 stress_memrate_write_rate##size(	\
 	register type *ptr;					\
 								\
 	{							\
+		const uint64_t pw =				\
+			memrate_pattern_word(context->memrate_write_pattern); \
 		type vaa;					\
 								\
-		(void)shim_memset(&vaa, 0xaa, sizeof(vaa));	\
+		/* replicate the pattern word's bytes to fill vaa   */ \
+		{						\
+			uint8_t *vp = (uint8_t *)&vaa;		\
+			size_t vi;				\
+			const uint8_t *wp = (const uint8_t *)&pw;	\
+			for (vi = 0; vi < sizeof(vaa); vi++)	\
+				vp[vi] = wp[vi & 7];		\
+		}						\
 		v = vaa;					\
 	}							\
 								\
@@ -642,9 +750,18 @@ static uint64_t OPTIMIZE3 stress_memrate_write_ ## write_op ## size (	\
 	}							\
 								\
 	{							\
+		const uint64_t pw =				\
+			memrate_pattern_word(context->memrate_write_pattern); \
 		type vaa;					\
 								\
-		(void)shim_memset(&vaa, 0xaa, sizeof(vaa));	\
+		/* replicate the pattern word's bytes to fill vaa   */ \
+		{						\
+			uint8_t *vp = (uint8_t *)&vaa;		\
+			size_t vi;				\
+			const uint8_t *wp = (const uint8_t *)&pw;	\
+			for (vi = 0; vi < sizeof(vaa); vi++)	\
+				vp[vi] = wp[vi & 7];		\
+		}						\
 		v = vaa;					\
 	}							\
 								\
@@ -697,9 +814,18 @@ static uint64_t OPTIMIZE3 stress_memrate_write_ ## write_op ## _rate ## size( \
 	}							\
 								\
 	{							\
+		const uint64_t pw =				\
+			memrate_pattern_word(context->memrate_write_pattern); \
 		type vaa;					\
 								\
-		(void)shim_memset(&vaa, 0xaa, sizeof(vaa));	\
+		/* replicate the pattern word's bytes to fill vaa   */ \
+		{						\
+			uint8_t *vp = (uint8_t *)&vaa;		\
+			size_t vi;				\
+			const uint8_t *wp = (const uint8_t *)&pw;	\
+			for (vi = 0; vi < sizeof(vaa); vi++)	\
+				vp[vi] = wp[vi & 7];		\
+		}						\
 		v = vaa;					\
 	}							\
 								\
@@ -1364,6 +1490,7 @@ static int stress_memrate(stress_args_t *args)
 	context->memrate_wr_mbs = ~0ULL;
 	context->memrate_flush = false;
 	context->memrate_method = 0; 	/* all */
+	context->memrate_write_pattern = MEMRATE_PATTERN_0XAA;
 
 	(void)stress_setting_get("memrate-bytes", &context->memrate_bytes);
 	(void)stress_setting_get("memrate-discontiguous", &context->memrate_discontiguous);
@@ -1371,6 +1498,7 @@ static int stress_memrate(stress_args_t *args)
 	(void)stress_setting_get("memrate-rd-mbs", &context->memrate_rd_mbs);
 	(void)stress_setting_get("memrate-wr-mbs", &context->memrate_wr_mbs);
 	(void)stress_setting_get("memrate-method", &context->memrate_method);
+	(void)stress_setting_get("memrate-write-pattern", &context->memrate_write_pattern);
 
 	if ((context->memrate_rd_mbs == 0ULL) && (context->memrate_wr_mbs == 0ULL)) {
 		pr_fail("%s: cannot use zero MB rates for read and write\n", args->name);
@@ -1505,6 +1633,7 @@ static const stress_opt_t opts[] = {
 	{ OPT_memrate_rd_mbs,        "memrate-rd-mbs", TYPE_ID_UINT64, 0, 1000000, NULL },
 	{ OPT_memrate_wr_mbs,        "memrate-wr-mbs", TYPE_ID_UINT64, 0, 1000000, NULL },
 	{ OPT_memrate_method,        "memrate-method", TYPE_ID_SIZE_T_METHOD, 0, 0, stress_memmap_method },
+	{ OPT_memrate_write_pattern, "memrate-write-pattern", TYPE_ID_SIZE_T_METHOD, 0, 0, stress_memrate_pattern_method },
 	END_OPT,
 };
 

@@ -949,6 +949,7 @@ typedef enum {
 	OPT_memrate_flush,
 	OPT_memrate_method,
 	OPT_memrate_ops,
+	OPT_memrate_write_pattern,
 	OPT_memrate_rd_mbs,
 	OPT_memrate_wr_mbs,
 
