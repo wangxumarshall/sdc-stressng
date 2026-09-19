@@ -311,7 +311,12 @@ jobs:
               -Y "seq-${TAG_SAFE}.yaml" > "seq-${TAG_SAFE}.log" 2>&1
           rc=$?
           set -e
-          ./scripts/ci-verify-log.sh "seq-${TAG_SAFE}.log" "seq-${TAG_SAFE}" "$rc"
+          # 4th arg = image tag: emits one CI-MATRIX line per stressor
+          # into THIS job log — the only channel that survives the
+          # post-suite container exhaustion (artifact uploads die with
+          # the container; the log is kept by the runner outside it).
+          # The results-summary job scrapes these lines back out.
+          ./scripts/ci-verify-log.sh "seq-${TAG_SAFE}.log" "seq-${TAG_SAFE}" "$rc" "${{ matrix.image_tag }}"
 
       # Best-effort upload of the full-suite log; may fail on an
       # exhausted container, in which case the summary annotation
@@ -393,7 +398,122 @@ jobs:
           retention-days: 90
 
   # ------------------------------------------------------------------
-  # Job 4/5: publish binaries to ghcr.io (manual dispatch only).
+  # Job 4/6: full per-stressor results matrix.
+  # Scrapes the CI-MATRIX lines that each build-test job emitted into
+  # its job log (logs survive the post-suite container exhaustion that
+  # kills in-container artifact uploads) and renders the complete
+  # stressor x image matrix — status and bogo-ops/s — into the run
+  # summary page and a persistent artifact.
+  # ------------------------------------------------------------------
+  results-summary:
+    needs: build-test
+    if: always() && needs.build-test.result != 'skipped'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Scrape CI-MATRIX lines from all build-test job logs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          mkdir -p matrix
+          # one file per matrix entry, named by its tag_safe component
+          gh api --paginate repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs \
+            --jq '.jobs[] | select(.name | startswith("build-test (")) | "\(.id) \(.name)"' \
+          | while read -r job_id job_name; do
+              tag=$(echo "$job_name" | sed -E 's/.*\(([^,]+),.*/\1/')
+              echo "scraping $tag (job $job_id)"
+              gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${job_id}/logs" \
+                --allow-escape-sequences 2>/dev/null \
+                | grep -a '^CI-MATRIX' > "matrix/${tag}.matrix" || true
+              wc -l < "matrix/${tag}.matrix" || true
+            done
+          # the last column of the job name is the tag_safe value, which
+          # matches the file names used above
+
+      - name: Render per-stressor matrix
+        run: |
+          set -eu
+          python3 - <<'PY'
+          import glob, collections, re
+
+          # tag order: by openEuler version then SP
+          def tag_key(t):
+              m = re.match(r'(\d+)\.(\d+)-lts(?:-sp(\d+))?$', t)
+              if not m:
+                  return (99, 99, 99, t)
+              sp = int(m.group(3) or 0)
+              return (int(m.group(1)), int(m.group(2)), sp, t)
+
+          files = glob.glob('matrix/*.matrix')
+          tags = sorted({f.rsplit('/', 1)[1][:-len('.matrix')] for f in files},
+                        key=tag_key)
+
+          # data[tag][stressor] = (status, rate)
+          data = {t: {} for t in tags}
+          for t in tags:
+              for line in open(f'matrix/{t}.matrix', encoding='utf-8',
+                               errors='replace'):
+                  parts = line.split()
+                  if len(parts) >= 4 and parts[0] == 'CI-MATRIX':
+                      data[t][parts[2]] = (parts[3], parts[4])
+
+          stressors = sorted({s for t in tags for s in data[t]})
+
+          def cell(t, s):
+              if s not in data[t]:
+                  return '·'          # not reported by this job
+              st, rate = data[t][s]
+              if st == 'PASS':
+                  return f'{float(rate):,.0f}'
+              return st
+
+          n_pass = collections.Counter()
+          n_skip = collections.Counter()
+          n_fail = collections.Counter()
+          for t in tags:
+              for s, (st, _) in data[t].items():
+                  if st == 'PASS':
+                      n_pass[t] += 1
+                  elif st == 'FAIL':
+                      n_fail[t] += 1
+                  else:
+                      n_skip[t] += 1
+
+          lines = ['# Per-stressor results matrix', '',
+                   'Every stressor on every openEuler image. Cells show',
+                   'bogo-ops/s (real time) for PASS; SKIP = honestly skipped',
+                   '(missing feature/resource on that image); FAIL = functional',
+                   'failure; · = not reported (job died before the suite).', '',
+                   '| image | pass | skip | fail |', '|---|---|---|---|']
+          for t in tags:
+              lines.append(f'| {t} | {n_pass[t]} | {n_skip[t]} | {n_fail[t]} |')
+
+          lines += ['', '## Full matrix (bogo-ops/s)', '',
+                    '| stressor | ' + ' | '.join(tags) + ' |',
+                    '|---' * (len(tags) + 1) + '|']
+          for s in stressors:
+              lines.append(f'| {s} | ' +
+                           ' | '.join(cell(t, s) for t in tags) + ' |')
+
+          table = '\n'.join(lines)
+          open('results-matrix.md', 'w', encoding='utf-8').write(table)
+          print(f'{len(stressors)} stressors x {len(tags)} images rendered')
+          PY
+          # the full matrix can exceed the summary size limit; head it
+          # in the summary and keep the full table in the artifact
+          head -c 1000000 results-matrix.md > results-matrix-head.md || true
+          cat results-matrix-head.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload full matrix
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: results-matrix
+          path: results-matrix.md
+          retention-days: 90
+
+  # ------------------------------------------------------------------
+  # Job 5/6: publish binaries to ghcr.io (manual dispatch only).
   # Rebuilds one image per openEuler tag around the binaries uploaded
   # by build-test and pushes to ghcr.io/<repo>:verify-<tag> — the
   # renamed successor of the historical 'opendcdiag-arm' package.
@@ -446,13 +566,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ------------------------------------------------------------------
-  # Job 5/5: final aggregate status.
+  # Job 6/6: final aggregate status.
   # The workflow is green only if all 15 matrix entries ran AND none of
   # them failed. Queries the GitHub API for per-matrix-entry results so
   # a partial matrix (e.g. runner capacity) is also caught.
   # ------------------------------------------------------------------
   final-status:
-    needs: [build-test, benchmark-compare, publish-image]
+    needs: [build-test, benchmark-compare, results-summary, publish-image]
     if: always()
     runs-on: ubuntu-latest
     steps:

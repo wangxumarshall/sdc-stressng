@@ -9,7 +9,18 @@
 #   1 = failures detected or summary missing
 #   2 = usage error
 #
-# Usage: ci-verify-log.sh <logfile> <run-label> [rc]
+# Usage: ci-verify-log.sh <logfile> <run-label> [rc] [image-tag]
+#
+# When <image-tag> is given, the script additionally emits one
+# CI-MATRIX line per stressor into the job log (the only channel
+# guaranteed to survive the post-suite container exhaustion):
+#
+#   CI-MATRIX <image-tag> <stressor> <status> <bogo-ops/s-real>
+#
+# status is PASS / SKIP / FAIL; rate is '-' for skip/fail or when the
+# stressor has no metrics line. These lines are later scraped from the
+# job logs by the results-summary job to render the full
+# stressor x image matrix in the run's summary page.
 #
 # This script is part of the multi-OS GitHub Actions verification
 # (.github/workflows/multi-os-verify.yml). It implements the "did any
@@ -26,9 +37,10 @@
 #
 set -u
 
-LOG="${1:?usage: ci-verify-log.sh <logfile> <label> [rc]}"
-LABEL="${2:?usage: ci-verify-log.sh <logfile> <label> [rc]}"
+LOG="${1:?usage: ci-verify-log.sh <logfile> <label> [rc] [image-tag]}"
+LABEL="${2:?usage: ci-verify-log.sh <logfile> <label> [rc] [image-tag]}"
 RC="${3:-}"
+IMAGE_TAG="${4:-}"
 
 if [[ ! -f "$LOG" ]]; then
 	echo "::error::log file '$LOG' not found"
@@ -40,6 +52,11 @@ passed=0
 failed=0
 completed=0
 fail_seen=0
+
+# per-stressor state for the CI-MATRIX emission (associative arrays
+# are bash builtins; populated only when IMAGE_TAG is set)
+declare -A m_rate=()
+declare -A m_status=()
 
 # single pass over the log with builtins only
 while IFS= read -r line; do
@@ -56,13 +73,45 @@ while IFS= read -r line; do
 	if [[ "$line" == *"skipped: "* ]]; then
 		skipped=${line##*skipped: }
 		skipped=${skipped%%[!0-9]*}
+		if [[ -n "$IMAGE_TAG" ]]; then
+			# remainder after the count: "acl (1) acct (1) ..." —
+			# name tokens carry no '(' , the "(n)" counts do
+			list=${line##*skipped: }
+			list=${list#*:}
+			for w in $list; do
+				[[ "$w" != *"("* ]] && m_status[$w]=""
+			done
+		fi
 	elif [[ "$line" == *"passed: "* ]]; then
 		passed=${line##*passed: }
 		passed=${passed%%[!0-9]*}
+		if [[ -n "$IMAGE_TAG" ]]; then
+			list=${line##*passed: }
+			list=${list#*:}
+			for w in $list; do
+				[[ "$w" != *"("* ]] && m_status[$w]=""
+			done
+		fi
 	elif [[ "$line" == *"failed: "* ]]; then
 		failed=${line##*failed: }
 		failed=${failed%%[!0-9]*}
 		[[ "$failed" =~ ^[1-9] ]] && fail_seen=1
+		if [[ -n "$IMAGE_TAG" && "$failed" =~ ^[1-9] ]]; then
+			# only a non-zero failure line carries a "name (n)" list;
+			# "failed: 0" would otherwise register a bogus stressor "0"
+			list=${line##*failed: }
+			list=${list#*:}
+			for w in $list; do
+				[[ "$w" != *"("* ]] && m_status[$w]=FAIL
+			done
+		fi
+	elif [[ "$line" == *"stress-ng: metrc:"* && "$IMAGE_TAG" ]]; then
+		# metrics table row: "... stressor  bogo-ops  real  usr  sys  ops/s(real)  ops/s(usr+sys)"
+		# fields after the pid bracket: name bogo real usr sys rate_real rate_usrsys
+		row=${line##*\] }
+		if [[ "$row" =~ ^([a-zA-Z0-9_-]+)[[:space:]]+([0-9]+)[[:space:]]+([0-9.]+)[[:space:]]+([0-9.]+)[[:space:]]+([0-9.]+)[[:space:]]+([0-9.]+) ]]; then
+			m_rate[${BASH_REMATCH[1]}]=${BASH_REMATCH[6]}
+		fi
 	fi
 done < "$LOG"
 
@@ -112,4 +161,31 @@ if [[ -n "$RC" && "$RC" != "0" ]]; then
 fi
 
 echo "[$LABEL] OK"
+
+# --- per-stressor matrix emission (fork-free, job-log scraping) ---
+if [[ -n "$IMAGE_TAG" ]]; then
+	# merge: stressors seen in the metrc table but not in the summary
+	# lists (e.g. excluded pathological ones) default to SKIP
+	for s in "${!m_rate[@]}"; do
+		[[ -z "${m_status[$s]:-}" && -z "${m_status[$s]+x}" ]] && m_status[$s]=""
+	done
+	n_pass=0; n_skip=0; n_fail=0
+	# stable order: iterate the metrc table order is not retained, so
+	# sort keys via a bounded insertion (sort would fork) — instead
+	# emit unsorted; the summary job collates and sorts
+	for s in "${!m_status[@]}"; do
+		st=${m_status[$s]}
+		if [[ "$st" == "FAIL" ]]; then
+			n_fail=$((n_fail + 1))
+			echo "CI-MATRIX $IMAGE_TAG $s FAIL -"
+		elif [[ -n "${m_rate[$s]:-}" ]]; then
+			n_pass=$((n_pass + 1))
+			echo "CI-MATRIX $IMAGE_TAG $s PASS ${m_rate[$s]}"
+		else
+			n_skip=$((n_skip + 1))
+			echo "CI-MATRIX $IMAGE_TAG $s SKIP -"
+		fi
+	done
+	echo "CI-MATRIX-SUMMARY $IMAGE_TAG pass=$n_pass skip=$n_skip fail=$n_fail"
+fi
 exit 0
