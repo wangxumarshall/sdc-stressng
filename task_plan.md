@@ -96,6 +96,24 @@ CP1（Kunpeng 950 7592C，2 socket / 95C×2T=190 物理核 / 382 逻辑 CPU / SV
 
 ## Next Step
 
+**Phase 9（2026-09-19 第十二轮）进行中**：SDC 检测用例的数值/地址空间变异强化。用户判断：当前 SDC 检测用例最大的问题是对操作数或地址空间的**变异不足**（操作数模式固定、地址空间覆盖窄），需尽可能对数值和地址空间做高质量随机（含 malloc 大内存等），识别加固点并制订方案。
+
+### Phase 9: 数值/地址空间变异强化（SDC 检出率） — in_progress
+- [x] git pull 上游（PR #5 无冲突合并，8 个上游修复，本机编译 0 error）
+- [x] 研究一+二：两份全量盘点完成（subagent 并行，docs/superpowers/research/2026-09-19-{operand-randomness,address-space}-survey.md）
+  - 操作数：30 路径分类 A13/B5/C12/D1；最重灾 memrate（11 处硬编码 0xaa）、armcrypto/cpu-int 锁死种子、atomic 字面操作数集、FP 算术缩放合成
+  - 地址：8 个"从未练习的形状"（多GB随机地址+校验、上位VA位持续流量、混合页序、malloc大内存等）；gold standard=mmaprandom（但默认仅8页且无校验）
+- [x] 研究三：文献杠杆确认（R2 D2/D3/D4/D5/E1）——均匀随机对边界/位段覆盖差，需模式字典×随机混合
+- [x] 研究四+五：方案完成 → docs/superpowers/plans/2026-09-19-operand-address-mutation.md
+  - P1 core-mwc-bitgen 位段定向生成器（地基）
+  - P2 stress-operand-var（操作数变异+VERIFY_ALWAYS）
+  - P3 stress-addrspace（地址形状 7 配方+校验，含 malloc 大内存）
+  - P4-P8 现有 stressor 加固（memrate/armcrypto种子/fp直合成/vm随机偏移/atomic）
+  - P9 文档+编排+CI 自动覆盖
+- [ ] 用户批准后按 P1→P5→P2→P3→P4/P6/P7→P8→P9 实施（每 patch plan→code→verify→commit）
+
+> 约束：与第七轮 12 patch（SVE2/饱和压测）正交——本轮聚焦"数据变异"而非"单元饱和"；与 SDCShield 分工不变（stress-ng=扰动器，但变异质量决定激发效率）。
+
 第七轮（2026-09-17）**全部 12 patch 实施完成**：11 commits 已推 port/arm64-saturation-sdc 分支（d9381762c..df6f448b3）。本机全功能验证 + QEMU 用户态仿真（-cpu max）SVE/SVE2/SM3/SM4/SHA3/RNDR 模拟验证全通过。SVE 动态开关（HWCAP 运行时 + target 属性编译隔离）贯穿全部新代码。
 
 **真机验证方案已产出**：`docs/superpowers/plans/2026-09-17-kunpeng950-real-machine-verification.md`（commit f87464509）——V1-V10 十项验证目标（逐项标注"为什么只能真机"+ 验收判据）、阶段 0 取证、双构建 A/B 策略、SDC 协同漏斗、结果模板、停机取证条件、风险回退。方案中全部 13 条命令/旗标已在本机二进制上逐条 parse-verified。下一步：CP1 真机执行并回填结果。
