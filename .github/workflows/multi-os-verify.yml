@@ -434,10 +434,13 @@ jobs:
               tag=$(echo "$job_name" | sed -E 's/.*\(([^,]+),.*/\1/')
               echo "scraping $tag (job $job_id)"
               # job-log lines are timestamp-prefixed; match anywhere in
-              # the line and strip the prefix down to the CI-MATRIX token
+              # the line and strip the prefix down to the CI-MATRIX token.
+              # The strict shapes reject workflow-comment text that
+              # set -x echoes into the log ("CI-MATRIX line per stressor").
               gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${job_id}/logs" \
                 --allow-escape-sequences 2>/dev/null \
-                | grep -ao 'CI-MATRIX.*' > "matrix/${tag}.matrix" || true
+                | grep -aEo 'CI-MATRIX-SUMMARY [0-9a-z.-]+ pass=[0-9]+ skip=[0-9]+ fail=[0-9]+|CI-MATRIX [0-9a-z.-]+ [a-z0-9_-]+ (PASS [0-9.]+|SKIP -|FAIL -)' \
+                  > "matrix/${tag}.matrix" || true
               echo "  $(wc -l < "matrix/${tag}.matrix") matrix lines"
             done
 
@@ -465,7 +468,11 @@ jobs:
               for line in open(f'matrix/{t}.matrix', encoding='utf-8',
                                errors='replace'):
                   parts = line.split()
-                  if len(parts) >= 4 and parts[0] == 'CI-MATRIX':
+                  # strict shape guard: the grep also picks up workflow
+                  # comment text echoed into the log by set -x (e.g.
+                  # "CI-MATRIX line per stressor"), which is not data
+                  if (len(parts) == 5 and parts[0] == 'CI-MATRIX'
+                          and parts[3] in ('PASS', 'SKIP', 'FAIL')):
                       data[t][parts[2]] = (parts[3], parts[4])
 
           stressors = sorted({s for t in tags for s in data[t]})
