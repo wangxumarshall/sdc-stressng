@@ -1,6 +1,34 @@
 # Progress Log
 
-## Session 2026-09-18（第十轮）: 并行收尾 —— 首次 ghcr 发布成功 + 首次全绿全量运行
+## Session 2026-09-19（第十一轮）: 全用例执行结果矩阵呈现（pass + bogo-ops/s）
+
+用户需求：multi-os-verify 呈现所有用例的执行结果（pass 或其他 [bogo-ops/s]）。
+
+### 实现架构（commit abd005f56..eb6e37d7c，run 22 全绿验证）
+1. **发射端**：`ci-verify-log.sh` 增加第 4 参数（image tag）→ fork-free 解析 passed/skipped/failed 列表 + metrc 表，每个 stressor 发射一行 `CI-MATRIX <tag> <stressor> <PASS|SKIP|FAIL> <bogo-ops/s>` 进 **job log**——唯一保证存活到最后的通道（sequential 之后容器报废，artifact 上传会死，job log 由 runner 在容器外保存）
+2. **汇总端**：新 `results-summary` job 用 gh api 抓 15 份 build-test job log → 严格形状 grep（防 set -x 回显的注释文本）→ Python 渲染：
+   - 每镜像 pass/skip/fail 汇总表
+   - **393 stressor × 15 镜像完整矩阵**（PASS 显示 bogo-ops/s，SKIP/FAIL 显示状态，· 表示未报告）
+   - 写入 Job Summary（截 1MB）+ 完整 artifact（90 天）
+
+### 排掉的三个坑（run 18-21）
+| Run | 坑 | 修复 |
+|---|---|---|
+| 18 | **PR #4 合并冲突**：port 分支的 armv8.6-a 改动与主线 GCC10 guard 合并丢失 `#if defined(HAVE_ARMCRYPTO_SVE2)`（10 if vs 11 endif）→ 15 镜像编译全炸 | aabda8a42 恢复 guard（gcc12 + gcc7.3 双验证） |
+| 20 | manifest-check 匿名查询撞 Docker Hub 限流（sp1 tag 假报 missing） | 8c9b70faa 每查询重试 5 次 |
+| 21 | `grep -ao 'CI-MATRIX.*'` 误抓 set -x 回显的注释（"CI-MATRIX line per stressor" 4 字段）→ 渲染 IndexError | eb6e37d7c 严格形状匹配（tag+status+rate 完整结构）双向防护 |
+
+### 首份完整矩阵的关键数据（run 22, 35428338420）
+| 维度 | 数据 |
+|---|---|
+| 全量结果 | 15 镜像全绿：20.03=323/70/0、22.03=328-329/64-65/0、24.03=328-331/62-65/0（passed+skipped=393 恒定） |
+| fma 编译器代差 | 20.03 (gcc7.3) ~61万 ops/s → 22.03+ (gcc10.3+) ~174万（2.8x） |
+| armcrypto 方法数差 | 20.03 ~5.3万（gcc7.3 只编 4 方法）→ 22.03+ ~17万（13 方法含 SVE2） |
+| sve2 stressor | 20.03 全系 SKIP（无 SVE2 编译支持，诚实跳过）→ 22.03+/24.03 全部运行 ~1,300 ops/s |
+| ls64/rdrand | 15 镜像全 SKIP（runner ARM 核无 ls64/RNDR 硬件，诚实跳过） |
+| 同 SP 版本内 | 波动普遍 <3%（如 fma 174-175万），测量一致性好 |
+
+
 
 用户指令：继续、并行搞、用 subagent。三路并行（快跑 publish + subagent 盯 sp4 + subagent 基准分析）。
 
