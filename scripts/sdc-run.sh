@@ -268,10 +268,14 @@ run_full()
 		echo "sve2=$HAS_SVE2 ls64=$HAS_LS64 crc32=$HAS_CRC32"
 		echo "isolated=$isolated_list offline=$offline_list"
 	} > "$out/topology.txt"
+	local total_mem_mb
+	total_mem_mb=$(awk '/^MemTotal:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 262144)
 	cp /proc/interrupts "$out/interrupts-before.txt" 2>/dev/null || true
 
 	"$NG" --cpu "$N_PHYSICAL" --taskset physical --cpu-method all \
 	      --fma "$N_PHYSICAL" --verify \
+	      --operand-var "$N_PHYSICAL" --verify \
+	      --addrspace 2 --addrspace-bytes "$(( total_mem_mb / 4 ))m" --verify \
 	      --varyload 64 --varyload-ms 20 \
 	      --interrupts -K --thermalstat 30 \
 	      --metrics-brief -Y "$out/A_full.yaml" -t "${dur}s" \

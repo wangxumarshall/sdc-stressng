@@ -200,6 +200,15 @@ do {									\
 	double t;							\
 	type tmp = (type)stress_mwc64();				\
 	type unshared, check1 = tmp, check2 = (type)~tmp;		\
+	/* SDC-directed operand jitter (mutation plan P8): the RMW	\
+	 * operand set was a fixed list of small literals; now each	\
+	 * round draws small random operands so the atomic units see	\
+	 * varying bit patterns while the RMW semantics stay intact	\
+	 * (type-punned from fresh mwc draws) */			\
+	const type r1 = (type)stress_mwc32modn(64) + 1;		\
+	const type r2 = (type)stress_mwc32modn(64) + 1;		\
+	const type r3 = ~(type)stress_mwc32modn(64);			\
+	const type r4 = ~(type)stress_mwc32modn(64);			\
 	int do_nothing = 0;						\
 									\
 	t = stress_time_now();						\
@@ -213,41 +222,41 @@ do {									\
 	SHIM_ATOMIC_STORE(var, &tmp, __ATOMIC_RELAXED); 		\
 	SHIM_ATOMIC_LOAD(var, &tmp, __ATOMIC_RELAXED);			\
 	SHIM_ATOMIC_LOAD(var, &tmp, __ATOMIC_ACQUIRE);			\
-	SHIM_ATOMIC_ADD_FETCH(var, (type)1, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_ADD_FETCH(var, r1, __ATOMIC_RELAXED);		\
 									\
-	SHIM_ATOMIC_ADD_FETCH(var, (type)2, __ATOMIC_ACQUIRE);		\
-	SHIM_ATOMIC_SUB_FETCH(var, (type)3, __ATOMIC_RELAXED);		\
-	SHIM_ATOMIC_SUB_FETCH(var, (type)4, __ATOMIC_ACQUIRE);		\
-	SHIM_ATOMIC_AND_FETCH(var, (type)~1, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_ADD_FETCH(var, r2, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_SUB_FETCH(var, r1, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_SUB_FETCH(var, r2, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_AND_FETCH(var, r3, __ATOMIC_RELAXED);		\
 									\
-	SHIM_ATOMIC_AND_FETCH(var, (type)~2, __ATOMIC_ACQUIRE);		\
-	SHIM_ATOMIC_XOR_FETCH(var, (type)~4, __ATOMIC_RELAXED);		\
-	SHIM_ATOMIC_XOR_FETCH(var, (type)~8, __ATOMIC_ACQUIRE);		\
-	SHIM_ATOMIC_OR_FETCH(var, (type)16, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_AND_FETCH(var, r4, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_XOR_FETCH(var, r3, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_XOR_FETCH(var, r4, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_OR_FETCH(var, r1, __ATOMIC_RELAXED);		\
 									\
-	SHIM_ATOMIC_OR_FETCH(var, (type)32, __ATOMIC_ACQUIRE);		\
-	SHIM_ATOMIC_NAND_FETCH(var, (type)64, __ATOMIC_RELAXED);	\
-	SHIM_ATOMIC_NAND_FETCH(var, (type)128, __ATOMIC_ACQUIRE);	\
+	SHIM_ATOMIC_OR_FETCH(var, r2, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_NAND_FETCH(var, r1, __ATOMIC_RELAXED);	\
+	SHIM_ATOMIC_NAND_FETCH(var, r2, __ATOMIC_ACQUIRE);	\
 	SHIM_ATOMIC_CLEAR(var, __ATOMIC_RELAXED);			\
 									\
 	/* 15 ops */							\
 	SHIM_ATOMIC_STORE(var, &tmp, __ATOMIC_RELAXED); 		\
 	SHIM_ATOMIC_STORE_N(var, tmp, __ATOMIC_RELAXED); 		\
-	SHIM_ATOMIC_FETCH_ADD(var, (type)1, __ATOMIC_RELAXED);		\
-	SHIM_ATOMIC_FETCH_ADD(var, (type)2, __ATOMIC_ACQUIRE);		\
-	SHIM_ATOMIC_FETCH_SUB(var, (type)3, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_FETCH_ADD(var, r1, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_FETCH_ADD(var, r2, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_FETCH_SUB(var, r1, __ATOMIC_RELAXED);		\
 									\
-	SHIM_ATOMIC_FETCH_SUB(var, (type)4, __ATOMIC_ACQUIRE);		\
-	SHIM_ATOMIC_FETCH_AND(var, (type)~1, __ATOMIC_RELAXED);		\
-	SHIM_ATOMIC_FETCH_AND(var, (type)~2, __ATOMIC_ACQUIRE);		\
-	SHIM_ATOMIC_FETCH_XOR(var, (type)~4, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_FETCH_SUB(var, r2, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_FETCH_AND(var, r3, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_FETCH_AND(var, r4, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_FETCH_XOR(var, r3, __ATOMIC_RELAXED);		\
 									\
-	SHIM_ATOMIC_FETCH_XOR(var, (type)~8, __ATOMIC_ACQUIRE);		\
-	SHIM_ATOMIC_FETCH_OR(var, (type)16, __ATOMIC_RELAXED);		\
-	SHIM_ATOMIC_FETCH_OR(var, (type)32, __ATOMIC_ACQUIRE);		\
-	SHIM_ATOMIC_FETCH_NAND(var, (type)64, __ATOMIC_RELAXED);	\
+	SHIM_ATOMIC_FETCH_XOR(var, r4, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_FETCH_OR(var, r1, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_FETCH_OR(var, r2, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_FETCH_NAND(var, r1, __ATOMIC_RELAXED);	\
 									\
-	SHIM_ATOMIC_FETCH_NAND(var, (type)128, __ATOMIC_ACQUIRE);	\
+	SHIM_ATOMIC_FETCH_NAND(var, r2, __ATOMIC_ACQUIRE);	\
 	SHIM_ATOMIC_CLEAR(var, __ATOMIC_RELAXED);			\
 									\
 	/* 19 ops */							\
@@ -255,42 +264,42 @@ do {									\
 	SHIM_ATOMIC_LOAD(var, &tmp, __ATOMIC_RELAXED);			\
 	SHIM_ATOMIC_STORE_N(var, tmp, __ATOMIC_RELAXED); 		\
 	SHIM_ATOMIC_LOAD_N(var, &tmp, __ATOMIC_RELAXED);		\
-	SHIM_ATOMIC_ADD_FETCH(var, (type)1, __ATOMIC_RELAXED);		\
-	SHIM_ATOMIC_SUB_FETCH(var, (type)3, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_ADD_FETCH(var, r1, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_SUB_FETCH(var, r1, __ATOMIC_RELAXED);		\
 									\
-	SHIM_ATOMIC_AND_FETCH(var, (type)~1, __ATOMIC_RELAXED);		\
-	SHIM_ATOMIC_XOR_FETCH(var, (type)~4, __ATOMIC_RELAXED);		\
-	SHIM_ATOMIC_OR_FETCH(var, (type)16, __ATOMIC_RELAXED);		\
-	SHIM_ATOMIC_NAND_FETCH(var, (type)64, __ATOMIC_RELAXED);	\
+	SHIM_ATOMIC_AND_FETCH(var, r3, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_XOR_FETCH(var, r3, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_OR_FETCH(var, r1, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_NAND_FETCH(var, r1, __ATOMIC_RELAXED);	\
 									\
 	SHIM_ATOMIC_LOAD(var, &tmp, __ATOMIC_ACQUIRE);			\
-	SHIM_ATOMIC_ADD_FETCH(var, (type)2, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_ADD_FETCH(var, r2, __ATOMIC_ACQUIRE);		\
 	SHIM_ATOMIC_LOAD_N(var, &tmp, __ATOMIC_ACQUIRE);		\
-	SHIM_ATOMIC_SUB_FETCH(var, (type)4, __ATOMIC_ACQUIRE);		\
-	SHIM_ATOMIC_AND_FETCH(var, (type)~2, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_SUB_FETCH(var, r2, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_AND_FETCH(var, r4, __ATOMIC_ACQUIRE);		\
 									\
-	SHIM_ATOMIC_XOR_FETCH(var, (type)~8, __ATOMIC_ACQUIRE);		\
-	SHIM_ATOMIC_OR_FETCH(var, (type)32, __ATOMIC_ACQUIRE);		\
-	SHIM_ATOMIC_NAND_FETCH(var, (type)128, __ATOMIC_ACQUIRE);	\
+	SHIM_ATOMIC_XOR_FETCH(var, r4, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_OR_FETCH(var, r2, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_NAND_FETCH(var, r2, __ATOMIC_ACQUIRE);	\
 	SHIM_ATOMIC_CLEAR(var, __ATOMIC_RELAXED);			\
 									\
 	/* 14 ops */							\
 	SHIM_ATOMIC_STORE(var, &tmp, __ATOMIC_RELAXED); 		\
-	SHIM_ATOMIC_FETCH_ADD(var, (type)1, __ATOMIC_RELAXED);		\
-	SHIM_ATOMIC_FETCH_SUB(var, (type)3, __ATOMIC_RELAXED);		\
-	SHIM_ATOMIC_FETCH_AND(var, (type)~1, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_FETCH_ADD(var, r1, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_FETCH_SUB(var, r1, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_FETCH_AND(var, r3, __ATOMIC_RELAXED);		\
 									\
-	SHIM_ATOMIC_FETCH_XOR(var, (type)~4, __ATOMIC_RELAXED);		\
-	SHIM_ATOMIC_FETCH_OR(var, (type)16, __ATOMIC_RELAXED);		\
-	SHIM_ATOMIC_FETCH_NAND(var, (type)64, __ATOMIC_RELAXED);	\
-	SHIM_ATOMIC_FETCH_ADD(var, (type)2, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_FETCH_XOR(var, r3, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_FETCH_OR(var, r1, __ATOMIC_RELAXED);		\
+	SHIM_ATOMIC_FETCH_NAND(var, r1, __ATOMIC_RELAXED);	\
+	SHIM_ATOMIC_FETCH_ADD(var, r2, __ATOMIC_ACQUIRE);		\
 									\
-	SHIM_ATOMIC_FETCH_SUB(var, (type)4, __ATOMIC_ACQUIRE);		\
-	SHIM_ATOMIC_FETCH_AND(var, (type)~2, __ATOMIC_ACQUIRE);		\
-	SHIM_ATOMIC_FETCH_XOR(var, (type)~8, __ATOMIC_ACQUIRE);		\
-	SHIM_ATOMIC_FETCH_OR(var, (type)32, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_FETCH_SUB(var, r2, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_FETCH_AND(var, r4, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_FETCH_XOR(var, r4, __ATOMIC_ACQUIRE);		\
+	SHIM_ATOMIC_FETCH_OR(var, r2, __ATOMIC_ACQUIRE);		\
 									\
-	SHIM_ATOMIC_FETCH_NAND(var, (type)128, __ATOMIC_ACQUIRE);	\
+	SHIM_ATOMIC_FETCH_NAND(var, r2, __ATOMIC_ACQUIRE);	\
 	SHIM_ATOMIC_CLEAR(var, __ATOMIC_RELAXED);			\
 									\
 	(*duration) += stress_time_now() - t;				\

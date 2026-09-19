@@ -1288,6 +1288,25 @@ ACLs.
 stop acl workers after N bogo acl settings have been set.
 .RE
 .TP
+.B \-\-addrspace N
+start N workers exercising address\-space shapes: multi\-GB mappings
+at random aligned addresses, per\-VA\-bit placements (bits 0..51),
+dense random\-offset page patterns, guarded PROT_NONE holes,
+malloc'd gigabytes, misaligned accesses at scale and mixed page
+orders — each filled with SDC\-directed bit patterns and verified.
+.TP
+.B \-\-addrspace\-bytes N
+maximum bytes per recipe round, default a quarter of physical memory.
+.TP
+.B \-\-addrspace\-method M
+specify the shape recipe: huge\-random\-fixed, va\-bit\-walk,
+dense\-random\-offset, guarded\-holes, malloc\-giant, misalign\-huge,
+mixed\-orders or all (rotate through every recipe).
+.TP
+.B \-\-addrspace\-ops N
+stop after N addrspace bogo operations.
+.TP
+.TP
 .B Affinity stressor
 .RS 5
 .TQ
@@ -6285,6 +6304,16 @@ write using libc memset
 T}
 .TE
 .TP
+.B \-\-memrate\-write\-pattern M
+select the byte pattern used by the write paths: 0xaa (the historical
+default), random (a fresh pseudo\-random 64 bit value per chunk),
+bandwalk (a bit\-band sweeping pattern from the SDC\-directed bit
+generator, continuing across chunks) or complement (alternating
+0x5555.../0xaaaa... words between chunks for maximal signal
+toggling). This matters for silent\-data\-corruption directed
+testing: the default writes a single bit pattern millions of times
+per second.
+.TP
 .B \-\-memrate\-ops N
 stop after N bogo memrate operations.
 .TP
@@ -7525,6 +7554,21 @@ start N workers that fork off children that execute randomly generated
 executable code. This will generate issues such as illegal instructions,
 bus errors, segmentation faults, traps, floating point errors that are
 handled gracefully by the stressor.
+.TP
+.B \-\-operand\-var N
+start N workers exercising SDC\-directed operand mutation: bit\-band
+swept integers, bit\-synthesised floating point values (independent
+exponent/mantissa), boundary\-dictionary values and complement pairs
+run through ALU, multiplier, divider and FPU paths with a golden
+replay comparison and bit\-level diagnostics on any difference.
+.TP
+.B \-\-operand\-var\-method M
+specify the mutation method: bandwalk\-int, bandwalk\-fp, edge\-dict,
+complement\-fma, type\-matrix or all (rotate through every method).
+.TP
+.B \-\-operand\-var\-ops N
+stop after N operand\-var bogo operations.
+.TP
 .TP
 .B \-\-opcode\-method [ inc | mixed | random | text ]
 select the opcode generation method. By default, random bytes are used to
@@ -11479,6 +11523,9 @@ T}
 prime\-incdec	T{
 step through memory in large prime steps incrementing bytes and then re-do
 again decrementing bytes.
+T}
+rand\-offset	T{
+dense random\-offset pages filled with bit\-generator patterns and verified in the same order
 T}
 rand\-set	T{
 sequentially work through memory in 64 bit chunks setting bytes in the chunk
