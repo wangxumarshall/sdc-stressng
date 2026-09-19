@@ -519,7 +519,7 @@ static void hw_pmull(void)
  *    rax1    z2.d, z0.d, z1.d        0x4521f402
  *    xar     z0.s, z0.s, z1.s, #13   0x04733420
  */
-#define SVE2_TARGET __attribute__((target("arch=armv8.6-a+sve2+sve2-aes+sve2-sm4+sve2-sha3")))
+#if defined(HAVE_ARMCRYPTO_SVE2)
 
 SVE2_TARGET
 static void hw_sve2_aes(void)
