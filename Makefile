@@ -393,6 +393,7 @@ HEADERS = \
 	core-module.h \
 	core-mounts.h \
 	core-mwc.h \
+	core-bitgen.h \
 	core-nt-load.h \
 	core-nt-store.h \
 	core-net.h \
@@ -479,6 +480,7 @@ CORE_SRC = \
 	core-module.c \
 	core-mounts.c \
 	core-mwc.c \
+	core-bitgen.c \
 	core-net.c \
 	core-numa.c \
 	core-opts.c \
