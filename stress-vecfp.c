@@ -17,6 +17,7 @@
  *
  */
 #include "stress-ng.h"
+#include "core-bitgen.h"
 #include "core-arch.h"
 #include "core-bitops.h"
 #include "core-builtin.h"
@@ -415,6 +416,8 @@ static double stress_vecfp_all(
 	return 0.0;
 }
 
+static stress_bitgen_t vecfp_bg;
+
 static int stress_vecfp(stress_args_t *args)
 {
 	stress_vecfp_init *vecfp_init;
@@ -459,6 +462,39 @@ static int stress_vecfp(stress_args_t *args)
 		double d;
 		float f;
 		uint32_t r;
+
+		if (i & 1) {
+			/* bit-synthesised r_init every other element:
+			 * independent exponent/mantissa (core-bitgen) vs the
+			 * correlated fields the arithmetic scaling below
+			 * produces — boundary exponents with boundary
+			 * mantissas become reachable */
+			uint32_t fbits;
+			uint64_t dbits;
+
+			stress_bitgen_seed(&vecfp_bg, stress_mwc64());
+			fbits = stress_bitgen_fp32_bits(&vecfp_bg);
+			dbits = stress_bitgen_fp64_bits(&vecfp_bg);
+			(void)shim_memcpy(&vecfp_init[i].f.r_init, &fbits, sizeof(fbits));
+			(void)shim_memcpy(&vecfp_init[i].d.r_init, &dbits, sizeof(dbits));
+			/* add/add_rev/mul stay arithmetic-derived below */
+			r = stress_mwc32();
+			d = (double)r / ((double)(1ULL << 31));
+			vecfp_init[i].d.add = d;
+			vecfp_init[i].d.add_rev = -(d * 0.992);
+			f = (float)r / ((float)(1ULL << 31));
+			vecfp_init[i].f.add = f;
+			vecfp_init[i].f.add_rev = -(f * (float)0.992);
+
+			r = stress_mwc32();
+			d = (double)i + (double)r / ((double)(1ULL << 36));
+			vecfp_init[i].d.mul = d;
+			vecfp_init[i].d.mul_rev = 0.9995 / d;
+			f = (float)i + (float)r / ((float)(1ULL << 36));
+			vecfp_init[i].f.mul = f;
+			vecfp_init[i].f.mul_rev = (float)0.9995 / f;
+			continue;
+		}
 
 		r = stress_mwc32();
 		d = (double)i + (double)r / ((double)(1ULL << 38));

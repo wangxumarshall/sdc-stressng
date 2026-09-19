@@ -17,6 +17,7 @@
  *
  */
 #include "stress-ng.h"
+#include "core-bitgen.h"
 #include "core-arch.h"
 #include "core-bitops.h"
 #include "core-builtin.h"
@@ -599,13 +600,33 @@ static const stress_fma_func_t stress_fma_libc_funcs[] = {
 static inline void OPTIMIZE3 TARGET_CLONES stress_fma_init(stress_fma_t *pfma)
 {
 	register size_t i;
+	stress_bitgen_t bg;
+	bool bg_seeded = false;
 
 PRAGMA_UNROLL_N(FMA_UNROLL)
 	for (i = 0; i < FMA_ELEMENTS; i++) {
-		register const float rnd = stress_fma_rnd_float();
+		if (i & 1) {
+			/* bit-synthesised operands: exponent and mantissa
+			 * filled independently (core-bitgen), so boundary
+			 * exponents with boundary mantissas are reachable —
+			 * arithmetic scaling never produces those */
+			if (!bg_seeded) {
+				stress_bitgen_init(&bg);
+				bg_seeded = true;
+			}
+			{
+				const uint32_t fbits = stress_bitgen_fp32_bits(&bg);
+				const uint64_t dbits = stress_bitgen_fp64_bits(&bg);
 
-		pfma->double_init[i] = (double)rnd;
-		pfma->float_init[i] = rnd;
+				(void)shim_memcpy(&pfma->float_init[i], &fbits, sizeof(fbits));
+				(void)shim_memcpy(&pfma->double_init[i], &dbits, sizeof(dbits));
+			}
+		} else {
+			register const float rnd = stress_fma_rnd_float();
+
+			pfma->double_init[i] = (double)rnd;
+			pfma->float_init[i] = rnd;
+		}
 	}
 }
 
