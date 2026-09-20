@@ -49,6 +49,12 @@
 #	         fully shared, near 1.0 means private - this maps the
 #	         SMT2 sharing topology of the chip (no public microarch
 #	         data exists for ARM server SMT2 cores).
+#	  abtest [-t secs] [-o dir]
+#	         A/B regression between two stress-ng builds: NG_A=<old>
+#	         NG_B=<new> (env vars) run the full-mode recipe each,
+#	         separated by a cooldown (COOLDOWN env, default 300s),
+#	         then produce ab_summary.txt with side-by-side failure
+#	         counts and the interpretation rule.
 #	  all    run full -> scan -> path sequentially
 #
 #	Options:
@@ -74,6 +80,7 @@
 #	NG=./stress-ng ./scripts/sdc-run.sh full -t 7200
 #	NG=./stress-ng ./scripts/sdc-run.sh scan -t 120 --keep-bg 64
 #	NG=./stress-ng ./scripts/sdc-run.sh path -t 600 -c 192-381
+#	NG_A=/tmp/stress-ng-old NG_B=./stress-ng ./scripts/sdc-run.sh abtest -t 7200
 #	NG=./stress-ng ./scripts/sdc-run.sh all
 #
 
@@ -94,7 +101,7 @@ usage() { sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 #  Parse arguments
 while [ $# -gt 0 ]; do
 	case "$1" in
-	full|scan|path|pair|all)
+	full|scan|path|pair|abtest|all)
 		MODE="$1"; shift ;;
 	-t)
 		DUR="$2"; shift 2 ;;
@@ -505,6 +512,89 @@ run_pair()
 }
 
 #  ---------------------------------------------------------------------------
+#  Mode: abtest - A/B regression between two stress-ng builds (P2)
+#
+#  Runs the full-mode load recipe twice on the same machine with the
+#  same parameters - once with the A binary (NG_A, e.g. the
+#  pre-mutation baseline fc243c784) and once with the B binary
+#  (NG_B, current build) - separated by a cooldown so the heat
+#  history of the first run does not contaminate the second.
+#
+#  The A build predates the operand/address mutation stressors, so
+#  its side automatically degrades to cpu+fma+varyload - that delta
+#  is exactly the increment under test.
+#
+#  Interpretation rules (also written into ab_summary.txt):
+#    B failures > A failures     -> mutation increases detection
+#                                   power (the wanted outcome)
+#    B == A                      -> no detection change; consider
+#                                   longer soak or load shaping
+#    B < A                       -> check bogo-ops rates first:
+#                                   B may simply be running less
+#                                   load, not detecting less
+#  ---------------------------------------------------------------------------
+run_abtest()
+{
+	local out=${OUT:-sdc_abtest_${TS}}
+	local dur=${DUR:-7200}
+	local rc=0
+	local a_dir="$out/A" b_dir="$out/B"
+	local cool=${COOLDOWN:-300}
+
+	mkdir -p "$a_dir" "$b_dir"
+
+	[ -x "${NG_A:-}" ] || { echo "error: NG_A=<path to old stress-ng> required for abtest" >&2; return 1; }
+	[ -x "${NG_B:-}" ] || { echo "error: NG_B=<path to new stress-ng> required for abtest" >&2; return 1; }
+
+	echo "=== mode abtest: A=${NG_A} vs B=${NG_B}, ${dur}s each, cooldown ${cool}s ==="
+
+	#  Run A
+	OUT="$a_dir" NG="$NG_A" run_full; rc=$?
+
+	#  Cooldown between runs: idle the machine so the residual heat
+	#  of run A does not bias run B (the residual-heat effect is an
+	#  SDC trigger we measure, not one we want leaking across arms)
+	echo "=== cooldown: ${cool}s idle ==="
+	sleep "$cool"
+
+	#  Run B
+	OUT="$b_dir" NG="$NG_B" run_full; local rc_b=$?
+	[ $rc_b -ne 0 ] && rc=$rc_b
+
+	#  Assemble the side-by-side summary from both report.txt files
+	{
+	echo "=== A/B regression summary ==="
+	echo "A: $NG_A"
+	echo "B: $NG_B"
+	echo "duration per arm: ${dur}s, cooldown: ${cool}s"
+	for arm in A B; do
+		local r="$out/$arm/report.txt"
+		if [ -f "$r" ]; then
+			echo "--- arm $arm ---"
+			grep -E "verify-failures|mismatch lines|first mismatch|tests failed|Test failed" "$r"
+		else
+			echo "--- arm $arm: no report (run failed?) ---"
+		fi
+	done
+	echo "--- interpretation ---"
+	local a_f b_f
+	a_f=$(awk '/^stress-ng verify-failures: /{print $3}' "$a_dir/report.txt" 2>/dev/null || echo 0)
+	b_f=$(awk '/^stress-ng verify-failures: /{print $3}' "$b_dir/report.txt" 2>/dev/null || echo 0)
+	echo "A failures: $a_f, B failures: $b_f"
+	if [ "$b_f" -gt "$a_f" ]; then
+		echo "RESULT: B > A - mutation increases detection power"
+	elif [ "$b_f" -eq "$a_f" ]; then
+		echo "RESULT: B == A - no detection change; consider longer soak or load shaping"
+	else
+		echo "RESULT: B < A - check bogo-ops rates: B may run less load, not detect less"
+	fi
+	echo "NOTE: compare bogo-ops in $a_dir/A_full.yaml vs $b_dir/A_full.yaml to rule out load-strength differences"
+	} | tee "$out/ab_summary.txt"
+
+	return $rc
+}
+
+#  ---------------------------------------------------------------------------
 #  Mode: all - the full funnel, sequentially
 #  ---------------------------------------------------------------------------
 run_all()
@@ -529,5 +619,6 @@ full)	run_full ;;
 scan)	run_scan ;;
 path)	run_path ;;
 pair)	run_pair ;;
+abtest)	run_abtest ;;
 all)	run_all ;;
 esac
