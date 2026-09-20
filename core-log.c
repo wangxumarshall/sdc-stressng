@@ -34,6 +34,8 @@
 static uint16_t	abort_fails;	/* count of failures */
 static bool	abort_msg_emitted;
 static int 	log_fd = -1;
+/*  per stressor instance failure counter, set by stress_child_run() */
+uint64_t *stress_verify_failures_ptr = NULL;
 
 /*
  *  This is used per stress-ng process and not shared, so locking is not required
@@ -397,7 +399,11 @@ void pr_err_skip(const char *fmt, ...)
 
 /*
  *  pr_fail()
- *	print failure messages
+ *	print failure messages and count them into the per-instance
+ *  stats verify_failures counter (via the pointer set up by
+ *  stress_child_run(), same mechanism as the sigalarmed pointer).
+ *  The parent process renders the accumulated count into the
+ *  yaml output as verify-failures.
  */
 void pr_fail(const char *fmt, ...)
 {
@@ -406,6 +412,13 @@ void pr_fail(const char *fmt, ...)
 	va_start(ap, fmt);
 	(void)pr_msg(PR_LOG_FLAGS_FAIL, fmt, ap);
 	va_end(ap);
+
+	if (stress_verify_failures_ptr)
+#if defined(HAVE_ATOMIC_ADD_FETCH)
+		(void)__atomic_add_fetch(stress_verify_failures_ptr, 1, __ATOMIC_RELAXED);
+#else
+		(*stress_verify_failures_ptr)++;
+#endif
 }
 
 /*

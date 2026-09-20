@@ -54,6 +54,8 @@ extern void pr_inf_skip(const char *fmt, ...)	FORMAT(printf, 1, 2);
 extern void pr_err(const char *fmt, ...)	FORMAT(printf, 1, 2);
 extern void pr_err_skip(const char *fmt, ...)	FORMAT(printf, 1, 2);
 extern void pr_fail(const char *fmt, ...)	FORMAT(printf, 1, 2);
+/*  per stressor instance pr_fail() counter, set by stress_child_run() */
+extern uint64_t *stress_verify_failures_ptr;
 extern void pr_tidy(const char *fmt, ...)	FORMAT(printf, 1, 2);
 extern void pr_warn(const char *fmt, ...)	FORMAT(printf, 1, 2);
 extern void pr_warn_skip(const char *fmt, ...)	FORMAT(printf, 1, 2);

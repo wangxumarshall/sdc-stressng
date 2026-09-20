@@ -1645,6 +1645,7 @@ static int MLOCKED_TEXT stress_child_run(
 	stress_args_t *args;
 
 	sigalarmed = &stats->sigalarmed;
+	stress_verify_failures_ptr = &stats->verify_failures;
 
 	stress_proc_state_set(name, STRESS_STATE_START);
 	g_shared->instance_count.started++;
@@ -1908,6 +1909,7 @@ static void MLOCKED_TEXT stress_run(
 			stress_sync_start_init(&stats->s_pid);
 			stats->args.bogo.count.counter_ready = true;
 			stats->args.bogo.count.counter = 0;
+			stats->verify_failures = 0;
 			stats->checksum = *checksum;
 			stats->item = g_item_current;
 			stats->s_pid.reaped = false;
@@ -2423,6 +2425,7 @@ static void stress_metrics_dump(FILE *yaml)
 	for (item = stress_stressor_list.head; item; item = item->next) {
 		const stress_metrics_info_t *mi;
 		uint64_t c_total = 0;
+		uint64_t verify_failures_total = 0;
 		double r_total = 0.0;
 		double u_total = 0.0;
 		double s_total = 0.0;
@@ -2456,6 +2459,7 @@ static void stress_metrics_dump(FILE *yaml)
 
 			run_ok  |= stats->args.bogo.count.run_ok;
 			c_total += stats->counter_total;
+			verify_failures_total += stats->verify_failures;
 			u_total += stats->rusage_utime_total;
 			s_total += stats->rusage_stime_total;
 #if defined(HAVE_RUSAGE_RU_MAXRSS)
@@ -2535,6 +2539,12 @@ static void stress_metrics_dump(FILE *yaml)
 		}
 
 		pr_yaml(yaml, "    - stressor: %s\n", name);
+		/*  SDC evidence: per-stressor failure count, only emitted
+		 *  when failures actually occurred so existing yaml
+		 *  consumers see no change on clean runs */
+		if (verify_failures_total > 0)
+			pr_yaml(yaml, "      verify-failures: %" PRIu64 "\n",
+				verify_failures_total);
 		if (g_opt_flags & OPT_FLAGS_SN) {
 			pr_yaml(yaml, "      bogo-ops: %" PRIu64 "\n", c_total);
 			pr_yaml(yaml, "      bogo-ops-per-second-usr-sys-time: %e\n", bogo_rate);

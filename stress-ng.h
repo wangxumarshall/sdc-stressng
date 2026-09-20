@@ -630,6 +630,7 @@ typedef struct stress_stats {
 	double start;			/* wall clock start time */
 	double duration;		/* finish - start */
 	uint64_t counter_total;		/* counter total */
+	uint64_t verify_failures;	/* count of pr_fail() messages, 0 = none */
 	double duration_total;		/* wall clock duration */
 #if defined(STRESS_PERF_STATS)
 	stress_perf_t sp;		/* perf counters */
