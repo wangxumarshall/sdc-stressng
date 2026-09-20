@@ -1,0 +1,72 @@
+{
+  "cli_version": "0.10.6",
+  "checkpoint_id": "01M2Z6QHDBHEDRY7RM0QCEZ4W3",
+  "session_id": "e0e94ed7-bf70-46ad-8248-9feeb56c865d",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-20T10:45:30.04480699Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "GLM-5.3[1m]",
+  "turn_id": "c57142712434",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 2347586,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 62239680,
+    "output_tokens": 100965,
+    "api_call_count": 288
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-planning-with-files:planning-with-files-2026-09-20T06:12:53.6490179Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "planning-with-files:planning-with-files"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "e0c2939e8890",
+      "timestamp": "2026-09-20T06:12:53.6490179Z",
+      "native": {
+        "command": "/planning-with-files:planning-with-files"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/planning-with-files:planning-with-files",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "prompt-skill-claude-code-planning-with-files:plan-goal-2026-09-20T08:30:13.16081714Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "planning-with-files:plan-goal"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "62258e0163a7",
+      "timestamp": "2026-09-20T08:30:13.16081714Z",
+      "native": {
+        "command": "/planning-with-files:plan-goal"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/planning-with-files:plan-goal",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 6
+  }
+}
