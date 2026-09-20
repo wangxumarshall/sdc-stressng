@@ -1,5 +1,23 @@
 # Progress Log
 
+## Session 2026-09-20（第十三轮·续）: P6 实施 — cache 系列 rand-payload
+
+用户"继续"授权 P6（三待办中唯一本机可执行项）。**全部完成，3 commits 推送 ee0ba8b04..5464927a6**：
+
+| Commit | 内容 | 验证 |
+|---|---|---|
+| 48f53488a cacheline rand-payload | 每进程独占对齐字（idx×8 错峰无重叠），低 8 位 tag + 高 56 位 bitgen 载荷，写→barrier→邻居扫→读回 | 注入位 45 每次往返被抓 + P3 yaml 64 计数；all/rdwr 回归绿 |
+| fc94a7a46 l1cache rand-payload | set/way 几何不变，bitgen 流填充 + per-set 种子重放 verify | 注入位 46 逐字 1-bit 诊断 + yaml 32768；forward/random 回归绿 |
+| 5464927a6 cache 写路径 | 线性坡 j&0xff → bitgen 流（u64 摊 8 字节），262 flag 组合共享 | A/B 带宽 5.24/5.31 vs 5.21/5.35 零回归 |
+
+**过程中抓出 2 个真 bug**（干净运行门卫 + grep 惯例纪律的又一次兑现）：
+1. l1cache `_and_verify` 初稿假设非 verify 变体先跑过 fill——实际框架每 run 只选一个变体，verify 对着零页全失配。修正为变体内自带 fill+replay。
+2. `shim_memcpy` 在本构建配置非符号 → 普通 memcpy（addrspace.c 同款用法）。
+
+**骨架先行教训兑现**：本轮三处改动均先定数据布局再动笔，零废弃代码（对比 addrspace 第一稿 300 行）。
+
+**环境备注**：gcc 7.3 容器本轮不可用（无容器 runtime）——C99 语法零警告 + 明日 CI 15 镜像 20.03 自动兜底。
+
 ## Session 2026-09-20（第十三轮）: README/CLAUDE.md arm64 重定位 + 第十二轮复盘改进方案
 
 用户需求（两项）：① 修改 README 和 CLAUDE.md，核心面向 arm64 服务器芯片压测；② 研究第十二轮复盘制定改进方案。

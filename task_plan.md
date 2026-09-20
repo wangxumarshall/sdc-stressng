@@ -96,7 +96,17 @@ CP1（Kunpeng 950 7592C，2 socket / 95C×2T=190 物理核 / 382 逻辑 CPU / SV
 
 ## Next Step
 
-**Phase 10 全部完成（2026-09-20 第十三轮）**：README/CLAUDE.md arm64 重定位 + 改进方案 5 patch（P3→P1→P2→P5→P4）全部实施并推送（c7e7ebf55..2751f8e01）。下一步待用户：① CP1 真机 A/B 长跑（`NG_A=<fc243c784构建> NG_B=./stress-ng ./scripts/sdc-run.sh abtest -t 7200` × 3 轮）② CI 明日 cron 自动覆盖新代码后用 ci-trend.sh 出首份变异稳定性对比 ③ P6 cache tag 重设计是否下轮立项。
+**Phase 10c（P6）完成（2026-09-20）**：cache 系列 SDC 定向变异三件套落地（cacheline/l1cache rand-payload 方法 + cache 写路径 bitgen 化，3 commits 推送至 5464927a6）。待外部条件：① CP1 真机 A/B（P2 abtest 已就绪）② CI 明日 cron 覆盖 P3-P6 新代码 ③ CI 累积一周后 ci-trend.sh 出稳定性对比。第十三轮全部完成。
+
+### Phase 10c: P6 — cache 系列 rand-payload opt-in 方法（2026-09-20） — complete（3 commits 推送 ee0ba8b04..5464927a6）
+- [x] 通读三文件结构 + 纸上定骨架（教训 3 兑现：先骨架后动笔，无一行废弃代码）
+- [x] **cacheline rand-payload**（48f53488a）：每进程独占 8 字节对齐字（idx×8 错峰 → 16 字节块无重叠），低 8 位=所有权 tag、高 56 位=bitgen 载荷，写→barrier→rdrev64 式邻居扫→读回比对+位级诊断；故障注入（位 45）每次往返被抓，P3 yaml verify-failures: 64 同步计数；rand-payload/all/rdwr 回归全过
+- [x] **l1cache rand-payload**（fc94a7a46）：保持 set/way 扫掠几何，bitgen 流填充字的 `_and_verify` 变体（per-set 种子重放，双 handle 惯例）；**开发中抓出 2 个真 bug**：①verify 变体假设 fill 已跑但框架只选一个变体 → verify 全 0 页失配（干净运行门卫抓住）②shim_memcpy 非 Symbol → memcpy；故障注入（位 46）逐字 1-bit-flipped 精确诊断 + yaml 32768 计数
+- [x] **cache 写路径 bitgen 化**（5464927a6）：纯写路径 `j & 0xff` 线性坡 → bitgen 流（每 u64 摊 8 字节，热循环零 per-byte RNG 开销），262 个 flag 组合全经此单函数；A/B 带宽 5.24/5.31 vs 5.21/5.35（噪声内零回归）
+- [x] man 三条目；gcc 7.3 容器本轮不可用（无 runtime）→ C99 语法零警告 + 明日 CI 15 镜像 20.03 自动兜底
+- [x] one-patch-per-unit：cacheline/l1cache/cache 三 commit 分别推送
+
+> Phase 10 主体已完成（5 patch 推送 c7e7ebf55..ee0ba8b04）。待用户/时间：CP1 真机 A/B（P2 已就绪）；CI 趋势一周后。
 
 ### Phase 10: README/CLAUDE.md arm64 重定位 + 复盘改进方案（2026-09-20 第十三轮） — in_progress
 - [x] README.md 重写：定位转向 arm64 服务器芯片 SDC 压测（fork 能力置顶：bitgen/operand-var/addrspace/armcrypto/sve2/ls64/sdc-run/CI；上游通用内容保留在后半部）
