@@ -96,9 +96,25 @@ CP1（Kunpeng 950 7592C，2 socket / 95C×2T=190 物理核 / 382 逻辑 CPU / SV
 
 ## Next Step
 
-**Phase 9（2026-09-19 第十二轮）进行中**：SDC 检测用例的数值/地址空间变异强化。用户判断：当前 SDC 检测用例最大的问题是对操作数或地址空间的**变异不足**（操作数模式固定、地址空间覆盖窄），需尽可能对数值和地址空间做高质量随机（含 malloc 大内存等），识别加固点并制订方案。
+**Phase 10 全部完成（2026-09-20 第十三轮）**：README/CLAUDE.md arm64 重定位 + 改进方案 5 patch（P3→P1→P2→P5→P4）全部实施并推送（c7e7ebf55..2751f8e01）。下一步待用户：① CP1 真机 A/B 长跑（`NG_A=<fc243c784构建> NG_B=./stress-ng ./scripts/sdc-run.sh abtest -t 7200` × 3 轮）② CI 明日 cron 自动覆盖新代码后用 ci-trend.sh 出首份变异稳定性对比 ③ P6 cache tag 重设计是否下轮立项。
 
-### Phase 9: 数值/地址空间变异强化（SDC 检出率） — in_progress
+### Phase 10: README/CLAUDE.md arm64 重定位 + 复盘改进方案（2026-09-20 第十三轮） — in_progress
+- [x] README.md 重写：定位转向 arm64 服务器芯片 SDC 压测（fork 能力置顶：bitgen/operand-var/addrspace/armcrypto/sve2/ls64/sdc-run/CI；上游通用内容保留在后半部）
+- [x] 新建 CLAUDE.md：仓库开发指南（分工模型/目标机事实/构建/能力地图/验证纪律/代码纪律 10 条（12 轮踩坑沉淀）/SDC 方法论）
+- [x] 研究（subagent ×2 并行，findings.md §11）：遗留 1/2/4/5 的代码现状全部核实（bitgen 参数硬编码、cache 三件套字节粒度 0 自由位、A/B 分界 commit 可构建、CI 缺时序工具）
+- [x] 改进方案 → docs/superpowers/plans/2026-09-20-sdc-field-validation-and-calibration.md
+  - P1 sdc-run 失配统计报告 / P2 abtest 模式（复盘遗留4 闭环主线）/ P3 yaml verify-failures 字段
+  - P4 bandwalk 校准链 / P5 ci-trend.sh / P6 cache tag 重设计（仅立项）/ P7 pagemap 脚本
+  - 实施顺序 P3→P1→P2→P5→P4；决策点 3 个（A 版基线选 fc243c784、P6 不本轮实施、真机窗口）
+- [x] 方案呈报用户批准（2026-09-20 用户指令"撰写完整方案并执行"——决策点采纳建议：A 基线=fc243c784、P6 本轮不实施、真机窗口 P1-P3 落地后安排）
+
+### Phase 10b: 方案执行（P3→P1→P2→P5→P4） — complete（2026-09-20，4 commits 已推送 c7e7ebf55..2751f8e01）
+- [x] **P3** -Y yaml `verify-failures: N` 字段（d48246ebc）：stats 计数 + pr_fail 经 stress_verify_failures_ptr 原子递增（sigalarmed 同款指针模式）+ yaml 仅 N>0 输出。故障注入 yaml=6 与 log 6 精确一致；4 stressor 干净路径零变化
+- [x] **P1** sdc-report.sh + sdc-run full 集成（b629c8d23）：per-stressor 失配计数（yaml 优先/log fallback）/首失配位置/preheat 标记/sdcshield 失配率+cpu-mask → report.txt 可 diff；full 模式改 --metrics；本机 15s E2E + 合成数据测试全过
+- [x] **P2** abtest 模式（58af7b130）：NG_A/NG_B 双臂 + 冷却（COOLDOWN）+ ab_summary.txt 三分支判读；本机端到端验证 A=fc243c784 worktree 构建 vs B=当前（45s×2+30s 冷却，双臂负载确认，健康机 A=B=0 符合预期）
+- [x] **P5** ci-trend.sh（58af7b130）：gh api 拉 CI-MATRIX 时序 + per-stressor×image CoV；聚合逻辑离线单测通过（修了跨镜像混合 bug）；gh 采集段在 CI 主机运行（本机无 gh）
+- [x] **P4** bitgen 校准链（2751f8e01）：--bitgen-band-width min*100+max / --bitgen-band-density 掩码（默认=文献值，MWC 流不变）+ man + sdc-flip-collect.sh（xor 掩码 64 位直方图+top-8 band 建议）+ bitgen-distribution.sh 第 7 项 CALIBRATION 检查；8/8 统计验证 PASS，全部消费者回归绿
+- [x] CI 15 镜像自动覆盖（multi-os-verify 每日 cron 会跑新代码）
 - [x] git pull 上游（PR #5 无冲突合并，8 个上游修复，本机编译 0 error）
 - [x] 研究一+二：两份全量盘点完成（subagent 并行，docs/superpowers/research/2026-09-19-{operand-randomness,address-space}-survey.md）
   - 操作数：30 路径分类 A13/B5/C12/D1；最重灾 memrate（11 处硬编码 0xaa）、armcrypto/cpu-int 锁死种子、atomic 字面操作数集、FP 算术缩放合成

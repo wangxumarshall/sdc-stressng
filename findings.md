@@ -1,4 +1,59 @@
-# Findings: stress-ng × SDCShield 协同 SDC 压测（v3，2026-09-16 第六轮更新）
+# Findings: stress-ng × SDCShield 协同 SDC 压测（v4，2026-09-20 第十三轮更新）
+
+## 11. 第十三轮：复盘驱动改进方案研究（2026-09-20）
+
+
+### 11.1 本机实测数据（文档与方案的事实基础）
+| 项 | 实测值 |
+|---|---|
+| operand-var 方法 | all / bandwalk-int / bandwalk-fp / edge-dict / complement-fma / type-matrix（5+all） |
+| addrspace 配方 | all / huge-random-fixed / va-bit-walk / dense-random-offset / guarded-holes / malloc-giant / misalign-huge / mixed-orders（7+all） |
+| memrate-write-pattern | 0xaa / random / bandwalk / complement |
+| vm-method | 含 rand-offset（39 方法之一） |
+| armcrypto 方法 | 13（NEON 9 + SVE2 4：sve2-aes/pmull/sha3/sm4） |
+| sve2 方法 | fmla / gather / fcmla / bitperm / bfdot |
+| stress-*.c 文件数 | 395 |
+| operand-var --verify / addrspace 冒烟 | 本机（920，gcc12）passed / failed: 0 |
+
+### 11.2 复盘遗留项代码现状（subagent 核查，带证据）
+
+**遗留1 bandwalk 窗口参数（core-bitgen.c:150-210）**：
+- 现值硬编码：`band_width = 6 + mwc%15`（6-20 位）、density ∈ {0,25,50,75,100}%（5 档）、`band_step = 1 + mwc%7`
+- 每完成 64 位全扫掠重摇 width/density；无任何运行时调参接口（无选项、无 env、无 man 条目）
+- `scripts/bitgen-distribution.sh` 是 build-time 统计验证（6 项：边界命中/位覆盖/FP 指数域/complement/hamming/mwc 无污染），**不是真机位翻分布采集器**——校准数据采集需新工具（可参考其 ones[] 计数模板 + 直接调 bitgen API）
+
+**遗留2 cache 系列数据值（tag 编码现状）**：
+| 文件 | 元素宽度 | verify | 记账位 | 自由位 | bitgen 调用 |
+|---|---|---|---|---|---|
+| stress-cache.c | uint8 | 无（读值只累加输出） | 0 | 8 | 无 |
+| stress-l1cache.c | uint8 | `*ptr != (uint8_t)set` | 8（=set 号） | verify 模式 0 | 无 |
+| stress-cacheline.c | uint8 | 全方法 VERIFY_ALWAYS | 8（状态机值：递增/rol/ror/拷贝） | 0 | 无 |
+- **复盘结论成立且比复盘更具体**：三者均为字节粒度状态机，无"地址+计数器打包 64 位 tag"设计，无空闲高位可注入随机 payload
+- cacheline-method 实际 **11 个**（all/adjacent/atomicinc/bits/copy/inc/mix/rdfwd64/rdints/rdrev64/rdwr），复盘记的 13 有误
+- 正面先例：stress-vm.c:1101-1193 rand-offset——fill/verify 双份同种子 bitgen（`shim_memcpy(&bg_verify, &bg, ...)`），确定性 PRNG 流 = 隐式 tag，无需显式地址字段。**cache 系列要复用此模式必须从字节粒度升到字（64位）粒度**
+
+**遗留3 pagemap PFN 导向**：无任何代码（P3 有意跳过）；需 root + /proc/pagemap 读 PFN
+
+**遗留4 A/B 回归基建现状**：
+- A/B 分界 commit 明确：`fc243c784`（变异前基线）→ `c7e7ebf55`（变异后 HEAD），两者均可独立构建
+- sdc-run.sh full 模式失配记录：仅 `grep -E "failed: [1-9]|data difference|mismatch" A_full.log | head -5`（sdc-run.sh:304）——**无失配计数、无失配率、无位置汇总**
+- 输出目录：topology.txt / A_full.log / A_full.yaml / interrupts-{before,after}.txt /（可选 preheat.log、sdcshield.log）
+- stress-ng -Y yaml **无 verify 失配结构化字段**（metrics 段只有 bogo-ops 等，stress-ng.c:2537-2549）；失配只在文本流（pr_fail 文案含元素下标/expected/actual/翻转位数/xor，stress-fma.c:664-670 位级诊断最全）
+- sdcshield 侧（../sdcshield，二进制已构建）：-Y YAML 每 test 带 result: pass|fail、fail 条目含 cpu-mask/time-to-fail/seed、汇总 "Test failed M out of N times (X%)"——**可直接给 A/B 对比提供失配率数字**
+
+**遗留5 CI 数据对比基建现状**：
+- CI-MATRIX 行格式：`CI-MATRIX <tag> <stressor> <PASS|SKIP|FAIL> <bogo-ops/s|->`（ci-verify-log.sh:180-189）；汇总行 CI-MATRIX-SUMMARY
+- results-summary job 用 gh api 拉全部 build-test job log 渲染矩阵；留存 = Job Summary 截 1MB + artifact 90 天
+- 时间序列可行：`gh api /repos/.../actions/runs?workflow_id=...&created=>=日期` → 每 run 的 jobs → 每 job 的 logs（与 summary job 同接口）；或拉历史 artifact（results-matrix）
+- **缺口**：没有跨 run 的趋势对比工具（每个 run 只看自己），需要一个小脚本做时序聚合
+
+### 11.3 复盘五条坑的流程化去向（CLAUDE.md 素材）
+1. 0基/1基分派：方法表必须 grep 参照现有 stressor 的 "all" 处理（stress-cpu.c:3114）再写
+2. verify oracle 确定性：随机化只进压力路径，oracle 保持字面量/恒等式（atomic P8 的教训）
+3. 复杂 recipe 先纸上定骨架：fill/verify 流同步 = 预绘制决策 + 无放回采样
+4. grep 上游惯例先于写代码：宏名（HAVE_MMAP 不存在、MB→STRESS_MB、shim_mmap 不存在）
+5. 大改动先想清注入点：死代码当场回滚，宁可 git checkout 重来
+
 
 ## 10. 第十二轮：数值/地址空间变异强化研究（2026-09-19）
 
@@ -14,8 +69,7 @@
 ### 10.2 基建现状（主线核验）
 - **PRNG 采用面广**：252 个 stressor 使用 stress_mwc_*（Marsaglia MWC，周期 ~2^60，统计质量足够但无密码学强度）
 - **sdcshield 参照**：AES-PRNG（aarch64 vaeseq 硬件加速，per-thread 状态，Constant/LCG/AES 三引擎）——同机房"高质量随机"的对照标杆
-- **关键洞察（预期修正）**：问题不是"没有随机"，而是"随机的形状不对"——均匀随机对位段敏感缺陷的覆盖效率低（52 位尾数空间均匀撒点 vs 定向位段扫掠）；固定模式（0x55/0xAA 类）又走向另一极端。**方案方向 = 模式字典 × 均匀随机的混合生成器**
-
+- **关键洞察（预期修正）**：问题不是“没有随机”，而是“随机的形状不对”——均匀随机对位段敏感缺陷的覆盖效率低（52 位尾数空间均匀撒点 vs 定向位段扫掠）；固定模式（0x55/0xAA 类）又走向另一极端。**方案方向 = 模式字典 × 均匀随机的混合生成器**
 
 
 ## 9. 第八轮工程事实（2026-09-17，GitHub Actions 多 OS 验证工作流；全部本机实测）

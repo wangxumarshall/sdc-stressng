@@ -1,6 +1,44 @@
 # Progress Log
 
-## Session 2026-09-19（第十一轮）: 全用例执行结果矩阵呈现（pass + bogo-ops/s）
+## Session 2026-09-20（第十三轮）: README/CLAUDE.md arm64 重定位 + 第十二轮复盘改进方案
+
+用户需求（两项）：① 修改 README 和 CLAUDE.md，核心面向 arm64 服务器芯片压测；② 研究第十二轮复盘制定改进方案。
+
+### 过程
+- 恢复项目状态（12 轮历史在案，main=c7e7ebf55）；Phase 10 注册；Phase 9 CI 项闭环（run 35449398396 全绿）
+- 本机构建 rc=0，方法列表实测（operand-var 5 / addrspace 7 / memrate-pattern 4 / armcrypto 13 / sve2 5；operand-var/addrspace verify 冒烟过）
+- subagent ×2 并行研究复盘遗留项代码现状（findings.md §11）：cache 三件套字节粒度 0 自由位、bitgen 参数硬编码、A/B 分界 commit 可构建、CI 缺时序工具
+- 修正复盘两处记忆偏差：cacheline-method 实际 11 个（非 13）；bitgen-distribution.sh 是统计验证器非采集器
+
+### 交付物（三项全部完成）
+1. **README.md 重写**：arm64 SDC 压测定位置顶（分工表/fork 能力三张表/快速上手/CI），上游通用内容保留后半部
+2. **CLAUDE.md 新建**：分工模型/目标机事实/构建/能力地图/验证纪律 6 步/**代码纪律 10 条（12 轮踩坑沉淀）**/SDC 方法论 7 条/遗留
+3. **改进方案** docs/superpowers/plans/2026-09-20-sdc-field-validation-and-calibration.md：
+   - 主线 = 复盘遗留4（SDC 实战检验）：P3 yaml verify-failures → P1 失配统计报告 → P2 abtest 模式（A=fc243c784/B=当前，失配率并排+判读规则）
+   - 配套：P4 bandwalk 校准链、P5 ci-trend.sh（遗留5 工具化）
+   - 立项不实施：P6 cache 字粒度 tag 重设计（opt-in 新方法路线）、P7 pagemap 脚本
+   - 实施顺序 P3→P1→P2→P5→P4；3 个决策点待用户批准
+
+### 执行阶段（Phase 10b，用户批准"撰写完整方案并执行"）— 全部完成，4 commits 推送 c7e7ebf55..2751f8e01
+
+| Patch | Commit | 验证证据 |
+|---|---|---|
+| P3 yaml verify-failures | d48246ebc | 故障注入：yaml `verify-failures: 6` 与 log 6 条失配**精确一致**；operand-var/fma/addrspace/cpu-method-all 干净路径 rc=0 且 yaml 无字段（向后兼容字节级）；注入还原后 git diff 零差异。实现：sigalarmed 同款 per-child 指针 + __atomic_add_fetch（HAVE 门控） |
+| P1 sdc-report.sh | b629c8d23 | 本机 15s full E2E（全零报告）+ 合成数据（per-stressor 6+2=8 精确、首失配 3/6=50%、preheat 标记、sdcshield 失配率 27.3%+cpu-mask）；full 模式 --metrics-brief→--metrics 修正 |
+| P2 abtest 模式 | 58af7b130 | 端到端：A=fc243c784 worktree 构建 vs B=当前，45s×2+30s 冷却；B 臂 5 stressor 齐（operand-var bogo 4.7 亿），A 臂按预期退化；ab_summary 三分支判读输出；健康机 A=B=0 |
+| P5 ci-trend.sh | 58af7b130 | 聚合管道离线单测：时序按 image 分组正确、CoV 按镜像分离（fma@24.03=0.2% vs fma@20.03 独立）；修了跨镜像混合 bug（44.4% 假高）；gh 采集段待 CI 主机首跑 |
+| P4 bitgen 校准链 | 2751f8e01 | bitgen-distribution 第 7 项 CALIBRATION（窗口 8..12 掩码 28 均 0 违例/10 万种子）→ 8/8 全 PASS；`--bitgen-band-width 812 --bitgen-band-density 28` verify 通过；消费者回归 operand-var/addrspace/vm-rand-offset 全绿；man 条目（groff 环境警告与本条目无关） |
+
+**执行中排掉的坑**：
+- P3 故障注入第一处改错位置（diff 只改诊断文本不影响比较）→ 换比较路径注入成功；期间一次 brace 破坏当场修复
+- yaml metrics 段需 --metrics 旗标——发现 full 模式一直用 --metrics-brief 导致 P3 字段根本不输出，顺手修正（这个 bug 若带上线 P1/P2 全部失明）
+- P5 单测抓住 CoV 跨镜像混合 bug（20.03 的 16 万与 24.03 的 174 万混算出 44.4% 假变异）——测试通过 ≠ 测的是你以为的东西的又一实例
+- bitgen probe 独立链接依赖滚雪球 → 放弃独立二进制，并入 bitgen-distribution.sh 既有 stubs 机制（仓库惯例优先）
+- opts 表范围 1..64 拒绝打包值 812 → 上限改 6464
+
+**遗留（P6/P7 立项未实施 + 真机窗口）**：cache 字粒度 tag 重设计下轮独立立项；pagemap 脚本待目标机；CP1 真机 A/B 长跑（2h×2 版本×3 轮）待用户安排——P2 的 abtest 已就绪，一条命令即可执行。
+
+
 
 用户需求：multi-os-verify 呈现所有用例的执行结果（pass 或其他 [bogo-ops/s]）。
 

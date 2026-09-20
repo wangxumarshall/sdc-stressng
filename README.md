@@ -1,4 +1,96 @@
-# stress-ng (stress next generation)
+# sdc-stressng — arm64 服务器芯片 SDC 压测 stress-ng
+
+> 上游 [ColinIanKing/stress-ng](https://github.com/ColinIanKing/stress-ng) 的 fork，
+> 面向 **arm64 服务器芯片（Kunpeng 920/950 级）的 SDC（静默数据损坏）故障核激发与定位**。
+> 开发指南见 [CLAUDE.md](CLAUDE.md)；跨平台构建等上游通用内容见本文后半部分。
+
+## 定位与分工
+
+arm64 服务器无硬件冗余（无 lockstep，RAS 管不了无检错通路），SDC 检出只能靠
+**软件扰动器 + golden 比对**。本 fork 与 [SDCShield](../sdcshield) 协同分工：
+
+| 工具 | 角色 |
+|---|---|
+| SDCShield | 校验器：273 个 golden 比对用例，判定 SDC 与否，报告故障核 |
+| 本 fork | 扰动器：压 di/dt、功耗、缓存/TLB/互联，制造边界时序条件，把潜在弱核逼出 SDC |
+
+核心方法论（文献+实证）：全核并发是触发条件（单核独占往往不触发）、热浸润+顺序效应
+（失败用例只在发热用例之后失败）、di/dt 阶跃、SMT 同核争用、长序列 soak、
+**SDC 定向数据变异**（随机的"形状"比"有没有随机"更重要）。
+
+## fork 专有能力（相对上游的全部增量）
+
+### SDC 定向数据变异（全带校验+故障注入验证）
+
+| 组件 | 说明 |
+|---|---|
+| `core-bitgen` | SDC 定向位模式生成器：位段扫掠（6-20 位窗口 × 5 档密度）、57 项边界值字典±抖动、FP 位型直合成（指数/尾数独立）、互补翻转对、汉明定向、模式混合 `stress_bitgen_u64()` |
+| `--operand-var` | 模式字典跑真实计算路径（ALU/乘法器/除法/FMA）+ golden 重放比对，5 方法 |
+| `--addrspace` | 7 个地址形状配方：多 GB 随机固定地址（52 位 VA span）、逐 VA 位扫掠（bit 0..51）、密集随机偏移、guard 洞、malloc 大内存、大规模错位、混合页序，全部带校验 |
+| `--memrate-write-pattern` | memrate 写模式 0xaa/random/bandwalk/complement（替代 11 处硬编码 0xaa） |
+| `--vm-method rand-offset` | 无放回 Fisher-Yates 密集随机偏移 + bitgen 填充/同序校验 |
+| 加固 | cpu/armcrypto 种子解锁（跨运行操作数变化）、fma/vecfp FP 位型直合成、atomic RMW 操作数抖动（verify oracle 保持确定性） |
+
+统计验证：边界命中 100% vs 均匀基线 ~0（>10⁶ 倍提升）；FP 指数分布精准 1/8:1/8:3/4；
+`scripts/bitgen-distribution.sh` 可重复验证。
+
+### ARM64 单元饱和压测
+
+| 组件 | 说明 |
+|---|---|
+| `--armcrypto` | 13 方法：NEON AES/SHA1/SHA256/SHA512/SHA3/PMULL/SM3/SM4 + SVE2 crypto（sveaes/svepmull/svesha3/svesm4，.inst 编码绕过 GCC 无 intrinsic），aes/pmull KAT 软件参考交叉核对 |
+| `--sve2` | SVE2 数据通路 5 方法（fmla/gather/fcmla/bitperm/bfdot），golden 比对 |
+| `--fma` | 运行时分发 SVE2 FMLA 内核（GCC12 无 aarch64 target_clones 的 FMV 等价） |
+| `--regs` | NEON v0-v31 + SVE z0-z31 全寄存器堆轮换 |
+| `--ls64` / `--rdrand` / `--tsc` | 64B 原子访存 / RNDR 硬件随机数 / CNTVCT_EL0 计数器 |
+| 缓存维护 | `--cache-flush`/`--cache-clwb`（DC CIVAC/CVAC）、`--memrate-method write64zva`（DC ZVA） |
+| `--taskset physical` | SMT 感知（每物理核取首线程，scan 逐物理核 sweep 用） |
+| `--rapl`/`--raplstat` | aarch64 hwmon 功率遥测（BMC/SoC/DDR rail） |
+| 构建注入 | SVE2 march 自动探测（`-O3 -march=armv8.6-a+sve2+bf16+i8mm+sve2-bitperm`，工具链+硬件双门控）；objdump 验收 z 寄存器指令 > 0 |
+
+所有 SVE2/ls64/RNDR 能力 HWCAP/HWCAP2 运行时门控 + target 属性编译隔离，
+单 binary 跨 920（NEON only）/950（SVE2）诚实运行或跳过。
+
+### SDC 编排与诊断
+
+`scripts/sdc-run.sh` 统一入口（拓扑自推导，同一命令跨 920/950）：
+
+```bash
+NG=./stress-ng ./scripts/sdc-run.sh full -t 7200 --preheat 10 [--sdcshield "./run-sdcshield.sh"]
+NG=./stress-ng ./scripts/sdc-run.sh scan -t 120 --keep-bg 64   # 逐物理核 + 背景压
+NG=./stress-ng ./scripts/sdc-run.sh pair                        # SMT 争用矩阵
+NG=./stress-ng ./scripts/sdc-run.sh path -t 600 -c 192-381      # 通路专项 golden 交叉核对
+```
+
+- `full`：全核触发负载（cpu+fma+operand-var+addrspace，全 verify）+ varyload di/dt 阶跃 +
+  `--preheat` 热浸润（发热在前验证在后）+ interrupts/thermalstat 联动观测
+- `scan`：逐物理核 sweep（SMT sibling 对），可配 `--keep-bg` 保持全核并发背景（CORE179 经验）
+- `pair`：同核 SMT 4 组合争用矩阵，bogo-ops 比率映射共享资源拓扑
+- `path`：sve2/ls64/crc32 通路专项，失配即该通路 SDC 直接证据
+
+verify 失配位级诊断（fma/vecfp/matrix）：首个不一致元素下标 + expected/actual 十六进制 +
+翻转位数 + xor 掩码。
+
+### CI（每日 15 镜像）
+
+`.github/workflows/multi-os-verify.yml`：openEuler 20.03/22.03/24.03 × 5 SP 原生容器
+`--sequential --verify` 全量 + 62 个 `*-method all` sweep + 基准采样 + 全 stressor ×
+15 镜像结果矩阵（bogo-ops/s），ghcr 镜像发布 `ghcr.io/wangxumarshall/sdc-stressng`。
+
+## 快速上手（arm64 SDC 压测）
+
+```bash
+make clean && make -j$(nproc)          # aarch64 自动探测 SVE2 工具链+硬件
+./stress-ng --operand-var 4 --verify -t 60    # SDC 定向操作数变异自检
+./stress-ng --addrspace 2 --verify -t 60      # 地址形状变异自检
+NG=./stress-ng ./scripts/sdc-run.sh all       # 完整诊断漏斗
+```
+
+开发纪律（验证流程、代码惯例、12 轮踩坑教训）见 [CLAUDE.md](CLAUDE.md)。
+
+---
+
+# 上游 stress-ng 通用内容
 
 <a href="https://repology.org/project/stress-ng/versions">
     <img src="https://repology.org/badge/vertical-allrepos/stress-ng.svg" alt="Packaging status" align="right">
@@ -8,7 +100,7 @@ stress-ng will stress test a computer system in various selectable ways. It
 was designed to exercise various physical subsystems of a computer as well as
 the various operating system kernel interfaces. Stress-ng features:
 
-  * 380+ stress tests
+  * 390+ stress tests（含本 fork 新增 operand-var / addrspace / sve2 / ls64 / armcrypto 扩展）
   * 100+ CPU specific stress tests that exercise floating point, integer,
     bit manipulation and control flow
   * 60+ virtual memory stress tests
