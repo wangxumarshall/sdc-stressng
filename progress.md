@@ -1,5 +1,28 @@
 # Progress Log
 
+## Session 2026-09-20（第十三轮·续2）: CI 监控启动 + 抓住并修复 schedule 超时 bug
+
+用户指令"你把这些监控起来"。**监控第一枪即抓住真 bug**：
+
+### 监控发现（ci-monitor.sh 第一次调用）
+- 今日 cron run 35501026920（head=c7e7ebf55 旧代码，08:58Z 启动）`--sequential` 步骤 16/16 镜像失败
+- 昨日 cron run 35432037923 同样 16/16 失败——**连续两天每日 cron 全红**
+- 而同 head 的手工 dispatch run 35449398396 全绿
+
+### 根因（铁证）
+- schedule 事件不带 workflow_dispatch inputs → `SEQ_TIMEOUT: ${{ inputs.sequential_timeout || '5' }}` 兜底为 **5**，dispatch 默认是 **2**
+- 实测对照：`--timeout 2` 时 sequential 11.1 分钟完成；`--timeout 5` 时跑满 **90.0 分钟**被步骤超时保护杀掉（同一镜像 20.03-lts、同代码）
+- 套件时长 ×2.5 后在共享 runner 池上撞 90m 保护窗
+
+### 修复
+- commit 6baae011d：兜底值 `'5'`→`'2'`（对齐 dispatch 默认与实测预算），YAML 校验过，已推送
+- 同 commit 入库 `scripts/ci-monitor.sh`（匿名 API 无需 gh/token）：latest 总览 / `--watch` per-job 结论+失败步骤定位 / `--new-code` 找 push 后首个 run
+
+### 监控任务清单（进行中）
+1. 今日 run 35501026920 收尾状态（旧代码，已知会红——失败全归因 SEQ_TIMEOUT bug，不代表代码问题）
+2. **明日 12:00（北京时间）cron**：首个含 P3-P6 新代码（d48246ebc..6baae011d）的 15 镜像 run——SEQ_TIMEOUT 修复后应全绿；rand-payload 方法会进 method sweep 自动覆盖
+3. 一周后：ci-trend.sh 稳定性对比（需在可认证环境运行）
+
 ## Session 2026-09-20（第十三轮·续）: P6 实施 — cache 系列 rand-payload
 
 用户"继续"授权 P6（三待办中唯一本机可执行项）。**全部完成，3 commits 推送 ee0ba8b04..5464927a6**：

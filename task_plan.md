@@ -96,7 +96,16 @@ CP1（Kunpeng 950 7592C，2 socket / 95C×2T=190 物理核 / 382 逻辑 CPU / SV
 
 ## Next Step
 
-**Phase 10c（P6）完成（2026-09-20）**：cache 系列 SDC 定向变异三件套落地（cacheline/l1cache rand-payload 方法 + cache 写路径 bitgen 化，3 commits 推送至 5464927a6）。待外部条件：① CP1 真机 A/B（P2 abtest 已就绪）② CI 明日 cron 覆盖 P3-P6 新代码 ③ CI 累积一周后 ci-trend.sh 出稳定性对比。第十三轮全部完成。
+**Phase 10d（CI 监控）进行中**：`scripts/ci-monitor.sh` 已入库（匿名 API），第一枪抓住并修复 schedule SEQ_TIMEOUT=5 兜底 bug（6baae011d：--timeout 5 使套件 ×2.5 撞 90m 窗，连续两天 cron 16/16 红；修复对齐 '2'）。监控点：① 今日 run 35501026920 收尾（旧代码+已知 bug，红属预期）② **明日 12:00 cron = 新代码（P3-P6+修复）首个 15 镜像验证，应全绿** ③ 一周后 ci-trend 稳定性对比。
+
+### Phase 10d: CI 监控 + schedule 超时 bug 修复（2026-09-20） — in_progress
+- [x] ci-monitor.sh 入库（latest/--watch/--new-code 三模式，匿名 API 无需 gh）
+- [x] 监控发现：连续两天 schedule run 16/16 sequential 失败 vs dispatch 同 head 全绿
+- [x] 根因定位：SEQ_TIMEOUT 兜底 '5' vs dispatch '2'；实测 11.1min vs 90.0min 铁证
+- [x] 修复推送（6baae011d）+ YAML 校验
+- [ ] 盯今日 run 35501026920 收尾（失败已归因，无需行动）
+- [ ] 盯明日 12:00 cron run：新代码 + 修复的首个 15 镜像全绿
+- [ ] 一周后：ci-trend.sh 对比变异前后 bogo-ops 稳定性
 
 ### Phase 10c: P6 — cache 系列 rand-payload opt-in 方法（2026-09-20） — complete（3 commits 推送 ee0ba8b04..5464927a6）
 - [x] 通读三文件结构 + 纸上定骨架（教训 3 兑现：先骨架后动笔，无一行废弃代码）
