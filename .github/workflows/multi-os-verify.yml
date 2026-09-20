@@ -121,7 +121,13 @@ jobs:
     # degrades to a slow run instead of a timeout kill.
     timeout-minutes: 360
     env:
-      SEQ_TIMEOUT: ${{ github.event.inputs.sequential_timeout || '5' }}
+      # schedule events carry no inputs: the fallback IS the scheduled
+      # value.  It must stay aligned with the dispatch default ('2'):
+      # at --timeout 5 the suite runs ~2.5x longer (measured 11.1 min
+      # at 2 vs a hard 90-min timeout kill at 5 on the shared runner
+      # pool - runs 35432037923 and 35501026920 failed 16/16 images
+      # this way while dispatch runs with the same head went green).
+      SEQ_TIMEOUT: ${{ github.event.inputs.sequential_timeout || '2' }}
       TAG_SAFE: ${{ matrix.tag_safe }}
     steps:
       # NOTE: do NOT rewrite 20.03 repo files to archives.openeuler.org.
