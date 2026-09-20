@@ -2007,6 +2007,12 @@ mix	T{
 perform a mix of increment, left and right rotates a specific byte in a
 cacheline and check for corruption.
 T}
+rand\-payload	T{
+write an SDC\-directed bit\-mutated 64 bit word (bitgen bandwalk/dictionary
+shapes, low byte repeats the owning process index) into an aligned word of
+the shared cacheline buffer, sweep neighbouring words with 64 bit reads and
+check for corruption on read back with bit\-level diagnostics.
+T}
 rdfwd64	T{
 increment a specific byte in a cacheline and then read in forward direction
 an entire cacheline using 64 bit reads.

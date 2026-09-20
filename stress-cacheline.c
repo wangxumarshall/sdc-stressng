@@ -18,6 +18,8 @@
  */
 #include "stress-ng.h"
 #include "core-affinity.h"
+#include "core-bitgen.h"
+#include "core-bitops.h"
 #include "core-builtin.h"
 #include "core-cpu-cache.h"
 #include "core-killpid.h"
@@ -557,6 +559,88 @@ static int stress_cacheline_all(
 	const bool parent,
 	const size_t l1_cacheline_size);
 
+/*
+ *  stress_cacheline_rand_payload()
+ *	word-granularity SDC-directed mutation (P6): each process owns
+ *	one aligned 64-bit word of the shared buffer (byte idx scaled
+ *	by 8 gives a unique 16-byte block per process, so words never
+ *	overlap), writes a fresh bitgen-mutated value into it, sweeps
+ *	neighbouring words across the barrier pattern like rdrev64,
+ *	then reads its own word back and compares.  This gives the
+ *	cache-line stress the SDC-directed operand shapes (bandwalk
+ *	windows, boundary dictionary) that the existing byte-state-
+ *	machine methods cannot carry, while the write-barrier-read
+ *	round trip keeps the cache line hot and contended exactly
+ *	like the classic methods.  The low byte of each written word
+ *	repeats the owning process's idx so the per-process ownership
+ *	layout remains visible in the data.
+ */
+static int stress_cacheline_rand_payload(
+	stress_args_t *args,
+	const int idx,
+	const bool parent,
+	const size_t l1_cacheline_size)
+{
+	register int i;
+	volatile uint8_t *buffer = (volatile uint8_t *)g_shared->cacheline.buffer;
+	const size_t size = g_shared->cacheline.size;
+	const int word_off = (idx * 8) & ~(int)7;	/* own word, 8-aligned */
+	volatile uint64_t *data64 =
+		(volatile uint64_t *)(buffer + word_off);
+	stress_bitgen_t bg;
+	const uint8_t tag8 = (uint8_t)idx;
+	const ssize_t sweep_size = (ssize_t)size;
+	uintptr_t aligned_cacheline = (uintptr_t)buffer & ~(l1_cacheline_size - 1);
+
+	(void)parent;
+
+	/* word must be inside the shared buffer */
+	if ((size_t)(word_off + 8) > size) {
+		pr_fail("%s: rand-payload method: word offset %d outside "
+			"shared cacheline buffer\n", args->name, word_off);
+		return EXIT_FAILURE;
+	}
+
+	stress_bitgen_init(&bg);
+
+PRAGMA_UNROLL
+	for (i = 0; i < 1024; i++) {
+		uint64_t v, expected;
+		register ssize_t j;
+
+		v = stress_bitgen_u64(&bg);
+		/* low byte carries the ownership tag; upper 56 bits
+		 * are the SDC-directed mutation payload */
+		v = (v & ~0xffULL) | tag8;
+		expected = v;
+
+		*data64 = v;
+		stress_asm_mb();
+
+		/* sweep neighbouring words backwards (rdrev64 pattern)
+		 * to keep the whole line set contended */
+		for (j = sweep_size - 8; j >= 0; j -= 8) {
+			volatile const uint64_t *d64 =
+				(volatile const uint64_t *)(aligned_cacheline + (size_t)j);
+
+			(void)*d64;
+			stress_asm_mb();
+		}
+
+		if (UNLIKELY(*data64 != expected)) {
+			const uint64_t diff = expected ^ *data64;
+
+			pr_fail("%s: rand-payload method: cache line error in word 0x%x, "
+				"expected 0x%16.16" PRIx64 ", got 0x%16.16" PRIx64
+				" (%" PRIu64 " bits flipped)\n",
+				args->name, (unsigned int)word_off, expected, *data64,
+				(uint64_t)stress_bitops_popcount64(diff));
+			return EXIT_FAILURE;
+		}
+	}
+	return EXIT_SUCCESS;
+}
+
 static const stress_cacheline_method_t cacheline_methods[] = {
 	{ "all",	stress_cacheline_all },
 	{ "adjacent",	stress_cacheline_adjacent },
@@ -567,6 +651,7 @@ static const stress_cacheline_method_t cacheline_methods[] = {
 	{ "copy",	stress_cacheline_copy },
 	{ "inc",	stress_cacheline_inc },
 	{ "mix",	stress_cacheline_mix },
+	{ "rand-payload", stress_cacheline_rand_payload },
 	{ "rdfwd64",	stress_cacheline_rdfwd64 },
 	{ "rdints",	stress_cacheline_rdints },
 	{ "rdrev64",	stress_cacheline_rdrev64 },
