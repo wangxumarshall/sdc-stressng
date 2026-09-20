@@ -278,7 +278,7 @@ run_full()
 	      --addrspace 2 --addrspace-bytes "$(( total_mem_mb / 4 ))m" --verify \
 	      --varyload 64 --varyload-ms 20 \
 	      --interrupts -K --thermalstat 30 \
-	      --metrics-brief -Y "$out/A_full.yaml" -t "${dur}s" \
+	      --metrics -Y "$out/A_full.yaml" -t "${dur}s" \
 	      > "$out/A_full.log" 2>&1 &
 	local ng_pid=$!
 	echo "stress-ng pid $ng_pid, log $out/A_full.log"
@@ -301,7 +301,10 @@ run_full()
 
 	cp /proc/interrupts "$out/interrupts-after.txt" 2>/dev/null || true
 	echo "=== full done (rc=$rc), results in $out ==="
-	grep -E "failed: [1-9]|data difference|mismatch" "$out/A_full.log" | head -5
+	#  mismatch statistics report (P1): verify failure counts per
+	#  stressor, first-mismatch position, sdcshield summary - the
+	#  report file is diffable between run directories
+	"$SCRIPT_DIR/sdc-report.sh" "$out"
 	return $rc
 }
 
