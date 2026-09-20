@@ -1076,6 +1076,8 @@ const struct option stress_long_options[] = {
 	{ "operand-var",	1,	NULL,	OPT_operand_var },
 	{ "operand-var-method",	1,	NULL,	OPT_operand_var_method },
 	{ "operand-var-ops",	1,	NULL,	OPT_operand_var_ops },
+	{ "bitgen-band-width",	1,	NULL,	OPT_bitgen_band_width },
+	{ "bitgen-band-density", 1,	NULL,	OPT_bitgen_band_density },
 
 	{ "addrspace",		1,	NULL,	OPT_addrspace },
 	{ "addrspace-method",	1,	NULL,	OPT_addrspace_method },

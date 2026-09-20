@@ -67,6 +67,8 @@ static const stress_opt_t opts[] = {
 	{ OPT_operand_var,	"operand-var",		TYPE_ID_UINT64,		0, 0, NULL },
 	{ OPT_operand_var_method,"operand-var-method",	TYPE_ID_SIZE_T_METHOD,	0, 0, stress_operand_var_method },
 	{ OPT_operand_var_ops,	"operand-var-ops",	TYPE_ID_UINT64,		0, 0, NULL },
+	{ OPT_bitgen_band_width, "bitgen-band-width",	TYPE_ID_UINT64,		1, 6464, NULL },
+	{ OPT_bitgen_band_density, "bitgen-band-density", TYPE_ID_UINT64,	1, 31, NULL },
 	END_OPT,
 };
 
@@ -347,9 +349,30 @@ static int OPTIMIZE3 stress_operand_var(stress_args_t *args)
 	size_t method = 0;
 	const size_t n_methods = SIZEOF_ARRAY(operand_var_methods);
 	uint64_t counter = 0;
+	uint64_t band_width = 0, band_density = 0;
 
 	(void)stress_setting_get("operand-var-method", &method);
 	/* 0 = "all": rotate through every method */
+
+	/*
+	 *  Calibration knobs (P4): the option value packs the window
+	 *  range as min*100 + max (e.g. --bitgen-band-width 812 means
+	 *  8..12), and the density list as a bitmask sum (e.g. 12 for
+	 *  densities 2+4 of 0/25/50/75/100%).  Unset keeps defaults.
+	 */
+	if (stress_setting_get("bitgen-band-width", &band_width) == 0 &&
+	    band_width > 0) {
+		uint32_t min = (uint32_t)(band_width / 100);
+		uint32_t max = (uint32_t)(band_width % 100);
+
+		if (min >= 1 && max >= min) {
+			stress_bitgen_band_width_min = min;
+			stress_bitgen_band_width_max = max > 64 ? 64 : max;
+		}
+	}
+	if (stress_setting_get("bitgen-band-density", &band_density) == 0 &&
+	    band_density > 0)
+		stress_bitgen_density_mask = (uint32_t)(band_density & 0x1f);
 
 	stress_proc_state_set(args->name, STRESS_STATE_SYNC_WAIT);
 	stress_sync_start_wait(args);

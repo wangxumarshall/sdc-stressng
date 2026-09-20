@@ -2000,6 +2000,8 @@ typedef enum {
 	OPT_operand_var,
 	OPT_operand_var_method,
 	OPT_operand_var_ops,
+	OPT_bitgen_band_width,
+	OPT_bitgen_band_density,
 
 	/* addrspace (mutation plan P3) */
 	OPT_addrspace,

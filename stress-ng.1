@@ -7569,6 +7569,19 @@ complement\-fma, type\-matrix or all (rotate through every method).
 .B \-\-operand\-var\-ops N
 stop after N operand\-var bogo operations.
 .TP
+.B \-\-bitgen\-band\-width minMAX
+calibrate the bitgen band\-walk window width range used by the
+mutation stressors: the value packs the range as min*100 + max
+(e.g. 812 selects windows of 8..12 bits; default 620, i.e. 6..20).
+Use after collecting a real bit\-flip position distribution with
+scripts/sdc\-flip\-collect.sh on the target machine, to bias the
+swept windows towards the bit\-bands that actually flip.
+.TP
+.B \-\-bitgen\-band\-density mask
+restrict the band densities (0=0%, 1=25%, 2=50%, 3=75%, 4=100%
+ones) to a subset selected by bitmask sum (e.g. 28 for densities
+2+3+4; default 31, i.e. all five).
+.TP
 .TP
 .B \-\-opcode\-method [ inc | mixed | random | text ]
 select the opcode generation method. By default, random bytes are used to

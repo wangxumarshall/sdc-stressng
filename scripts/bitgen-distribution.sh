@@ -177,6 +177,43 @@ int main(void)
 	}
 	printf("ISOLATION ok\n");
 
+	/* 7. CALIBRATION knobs (P4): window range and density mask
+	 * must be honoured; unset keeps the defaults 6..20 / all */
+	{
+		int j, bad = 0;
+
+		stress_bitgen_band_width_min = 8;
+		stress_bitgen_band_width_max = 12;
+		for (j = 0; j < 100000; j++) {
+			stress_bitgen_seed(&bg, (uint64_t)j * 2654435761u + 1);
+			if (bg.band_width < 8 || bg.band_width > 12)
+				bad++;
+		}
+		if (bad) {
+			fprintf(stderr, "FAIL: band-width calibration not honoured\n");
+			fails++;
+		}
+		printf("CALIBRATION width 8..12 ok (%d bad)\n", bad);
+
+		stress_bitgen_density_mask = 28;	/* densities 2,3,4 */
+		bad = 0;
+		for (j = 0; j < 100000; j++) {
+			stress_bitgen_seed(&bg, (uint64_t)j * 40503u + 2);
+			if (bg.density < 2)
+				bad++;
+		}
+		if (bad) {
+			fprintf(stderr, "FAIL: density calibration not honoured\n");
+			fails++;
+		}
+		printf("CALIBRATION density mask 28 ok (%d bad)\n", bad);
+
+		/* restore defaults so earlier checks remain re-runnable */
+		stress_bitgen_band_width_min = 6;
+		stress_bitgen_band_width_max = 20;
+		stress_bitgen_density_mask = 0x1f;
+	}
+
 	printf(fails ? "RESULT FAIL (%d)\n" : "RESULT PASS\n", fails);
 	return fails ? 1 : 0;
 }

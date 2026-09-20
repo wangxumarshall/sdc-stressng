@@ -89,6 +89,25 @@ static const uint32_t density_ones[5] = { 0, 1, 2, 3, 4 };	/* 0/25/50/75/100% */
 #define DENSITY_MAX	4
 
 /*
+ *  Calibration knobs (P4 of the field-validation plan).
+ *
+ *  The defaults are the literature-derived values; once a target
+ *  machine has produced a real bit-flip position distribution
+ *  (collected via scripts/sdc-flip-collect.sh from verify-failure
+ *  xor masks), the window shape can be biased towards the
+ *  bit-bands that actually flip on that silicon:
+ *
+ *	--bitgen-band-width min:max	window width range, 1..64
+ *	--bitgen-band-density list	allowed densities, e.g. 2,3,4
+ *
+ *  Both are read once per handle init; unset values keep the
+ *  defaults so existing behaviour is bit-for-bit unchanged.
+ */
+uint32_t stress_bitgen_band_width_min = 6;
+uint32_t stress_bitgen_band_width_max = 20;
+uint32_t stress_bitgen_density_mask = 0x1f;	/* all 5 densities allowed */
+
+/*
  *  bg_mwc32()
  *	private MWC step — identical algorithm to stress_mwc32() but on
  *	the handle's state, so the global stream is never consumed here.
@@ -104,6 +123,31 @@ static inline uint32_t bg_mwc32(stress_bitgen_t *bg)
 static inline uint64_t bg_mwc64(stress_bitgen_t *bg)
 {
 	return (((uint64_t)bg_mwc32(bg)) << 32) | bg_mwc32(bg);
+}
+
+/*  roll a band width inside the configured [min, max] range */
+static inline uint32_t band_width_roll(stress_bitgen_t *bg)
+{
+	const uint32_t span = stress_bitgen_band_width_max -
+				stress_bitgen_band_width_min + 1;
+
+	return stress_bitgen_band_width_min + (bg_mwc32(bg) % span);
+}
+
+/*  roll a density among the allowed (masked) densities */
+static inline uint32_t density_roll(stress_bitgen_t *bg)
+{
+	uint32_t allowed[DENSITY_MAX + 1], n = 0, i;
+
+	for (i = 0; i <= DENSITY_MAX; i++) {
+		if (stress_bitgen_density_mask & (1u << i))
+			allowed[n++] = i;
+	}
+	/* mask == 0 would be a no-op config; fall back to all */
+	if (n == 0)
+		return bg_mwc32(bg) % (DENSITY_MAX + 1);
+
+	return allowed[bg_mwc32(bg) % n];
 }
 
 /*
@@ -130,10 +174,10 @@ void stress_bitgen_seed(stress_bitgen_t *bg, const uint64_t seed)
 	(void)bg_mwc64(bg);
 
 	bg->band_lo = bg_mwc32(bg) & 63;
-	bg->band_width = 6 + (bg_mwc32(bg) % 15);		/* 6..20 */
+	bg->band_width = band_width_roll(bg);
 	bg->band_step = 1 + (bg_mwc32(bg) % 7);
 	bg->band_count = 0;
-	bg->density = bg_mwc32(bg) % (DENSITY_MAX + 1);
+	bg->density = density_roll(bg);
 	bg->edge_idx = bg_mwc32(bg) % EDGE_DICT_SIZE;
 	bg->mix = bg_mwc32(bg);
 }
@@ -194,8 +238,8 @@ static uint64_t band_fill(stress_bitgen_t *bg)
 		bg->band_lo = (bg->band_lo + 1) & 63;
 		if (bg->band_lo == 0) {
 			/* full sweep done: re-roll width/density */
-			bg->band_width = 6 + (bg_mwc32(bg) % 15);
-			bg->density = bg_mwc32(bg) % (DENSITY_MAX + 1);
+			bg->band_width = band_width_roll(bg);
+			bg->density = density_roll(bg);
 			bg->band_step = 1 + (bg_mwc32(bg) % 7);
 		}
 	}

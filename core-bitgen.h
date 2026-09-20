@@ -58,6 +58,15 @@ typedef struct {
 	uint32_t mix;
 } stress_bitgen_t;
 
+/*  Calibration knobs (P4): window width range and allowed densities.
+ *  Defaults keep the literature-derived shape (6..20 bits, all 5
+ *  densities); override via the operand-var stressor's
+ *  --bitgen-band-width min:max and --bitgen-band-density list
+ *  options after collecting a real bit-flip distribution. */
+extern uint32_t stress_bitgen_band_width_min;	/* default 6 */
+extern uint32_t stress_bitgen_band_width_max;	/* default 20 */
+extern uint32_t stress_bitgen_density_mask;	/* default 0x1f (all) */
+
 /*  stress_bitgen_init()
  *	initialise a generator handle with a seed drawn from the
  *	global MWC stream (i.e. varies per run/worker; use --seed for
