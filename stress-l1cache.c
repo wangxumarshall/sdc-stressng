@@ -19,6 +19,8 @@
  */
 #include "stress-ng.h"
 #include "core-attribute.h"
+#include "core-bitgen.h"
+#include "core-bitops.h"
 #include "core-cpu-cache.h"
 #include "core-madvise.h"
 #include "core-mmap.h"
@@ -458,6 +460,111 @@ PRAGMA_UNROLL_N(2)
 	return EXIT_SUCCESS;
 }
 
+/*
+ *  stress_l1cache_rand_payload() / _and_verify()
+ *	SDC-directed data mutation (P6): the classic methods write the
+ *	set number into every byte of the set - the byte IS the verify
+ *	state, so no mutation shapes fit.  The rand-payload method
+ *	keeps the set/way sweep geometry (cycle 2 x cache size in set
+ *	steps to force evictions) but fills each 64-bit aligned word
+ *	of the set from a bitgen stream instead; verify re-derives
+ *	the identical stream (same per-set seed) and compares with
+ *	bit-level diagnostics.
+ */
+static int OPTIMIZE3 stress_l1cache_rand_payload(
+	stress_args_t *args,
+	uint8_t *cache_aligned,
+	const uint32_t l1cache_size,
+	const uint32_t l1cache_sets,
+	const uint32_t l1cache_set_size)
+{
+	static uint32_t set;
+	const uint32_t set_offset = set * l1cache_set_size;
+	uint8_t * const cache_start = cache_aligned + set_offset;
+	const uint8_t * const cache_end = cache_start + (l1cache_size << 1);
+	const size_t cache_size = cache_end - cache_start;
+	stress_bitgen_t bg;
+	const uint64_t seed = (uint64_t)set * 2654435761u + 0x5eed;
+	volatile uint64_t *w;
+	const volatile uint64_t *wend;
+
+	(void)args;
+	stress_bitgen_seed(&bg, seed);
+
+	w = (volatile uint64_t *)cache_start;
+	wend = (const volatile uint64_t *)(cache_start + (cache_size & ~7ULL));
+	while (w < wend) {
+		*w = stress_bitgen_u64(&bg);
+		stress_asm_mb();
+		w++;
+	}
+
+	set++;
+	if (UNLIKELY(set >= l1cache_sets))
+		set = 0;
+	return EXIT_SUCCESS;
+}
+
+static int OPTIMIZE3 stress_l1cache_rand_payload_and_verify(
+	stress_args_t *args,
+	uint8_t *cache_aligned,
+	const uint32_t l1cache_size,
+	const uint32_t l1cache_sets,
+	const uint32_t l1cache_set_size)
+{
+	static uint32_t set;
+	const uint32_t set_offset = set * l1cache_set_size;
+	uint8_t * const cache_start = cache_aligned + set_offset;
+	const uint8_t * const cache_end = cache_start + (l1cache_size << 1);
+	const size_t cache_size = cache_end - cache_start;
+	stress_bitgen_t bg, bg_verify;
+	const uint64_t seed = (uint64_t)set * 2654435761u + 0x5eed;
+	volatile uint64_t *w;
+	const volatile uint64_t *wend;
+	size_t bit_errors = 0;
+
+	(void)args;
+
+	/* fill the set from the bitgen stream, then immediately
+	 * replay the identical stream (same per-set seed) and
+	 * compare - the fill/verify pair follows the vm rand-offset
+	 * dual-handle convention */
+	stress_bitgen_seed(&bg, seed);
+	(void)memcpy(&bg_verify, &bg, sizeof(bg_verify));
+
+	w = (volatile uint64_t *)cache_start;
+	wend = (const volatile uint64_t *)(cache_start + (cache_size & ~7ULL));
+	while (w < wend) {
+		*w = stress_bitgen_u64(&bg);
+		stress_asm_mb();
+		w++;
+	}
+
+	w = (volatile uint64_t *)cache_start;
+	while (w < wend) {
+		const uint64_t expected = stress_bitgen_u64(&bg_verify);
+
+		if (UNLIKELY(*w != expected)) {
+			const uint64_t diff = expected ^ *w;
+
+			pr_fail("%s: rand-payload: data difference at "
+				"set %" PRIu32 " offset %zu, expected "
+				"0x%16.16" PRIx64 ", actual 0x%16.16" PRIx64
+				" (%" PRIu64 " bits flipped)\n",
+				args->name, set, (size_t)((uint8_t *)w - cache_start),
+				expected, *w,
+				(uint64_t)stress_bitops_popcount64(diff));
+			bit_errors++;
+		}
+		w++;
+	}
+
+	set++;
+	if (UNLIKELY(set >= l1cache_sets))
+		set = 0;
+	return bit_errors ? EXIT_FAILURE : EXIT_SUCCESS;
+}
+
 typedef int (*l1cache_func_t)(
 	stress_args_t *args,
 	uint8_t *cache_aligned,
@@ -472,6 +579,7 @@ typedef struct {
 
 static const stress_l1cache_method_t stress_l1cache_methods[] = {
 	{ "forward",	{ stress_l1cache_forward,	stress_l1cache_forward_and_verify } },
+	{ "rand-payload", { stress_l1cache_rand_payload, stress_l1cache_rand_payload_and_verify } },
 	{ "random",	{ stress_l1cache_random,	stress_l1cache_random_and_verify } },
 	{ "reverse",	{ stress_l1cache_reverse,	stress_l1cache_reverse_and_verify } },
 };

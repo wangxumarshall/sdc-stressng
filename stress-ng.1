@@ -5413,9 +5413,13 @@ of the 4 cache geometric parameters, these are as follows:
 .B \-\-l1cache\-line\-size N
 specify the level 1 cache line size (in bytes)
 .TP
-.B \-\-l1cache\-method [ forward | random | reverse ]
+.B \-\-l1cache\-method [ forward | rand\-payload | random | reverse ]
 select the method of exercising a l1cache sized buffer. Optionas are
 forward scan, random pick of random bytes to exercise, and reverse scans in reverse.
+The rand\-payload method keeps the set/way sweep geometry but fills each
+64 bit aligned word of the set from an SDC\-directed bitgen stream
+(bandwalk/boundary\-dictionary shapes) and, with \-\-verify, replays the
+identical per\-set seeded stream and compares with bit\-level diagnostics.
 The default is the forward scan.
 .TP
 .B \-\-l1cache\-mlock
