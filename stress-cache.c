@@ -22,6 +22,7 @@
 #include "core-asm-riscv.h"
 #include "core-asm-arm.h"
 #include "core-affinity.h"
+#include "core-bitgen.h"
 #include "core-builtin.h"
 #include "core-cpu-cache.h"
 #include "core-put.h"
@@ -906,17 +907,36 @@ static void stress_cache_write(
 	register uint64_t k = *k_ptr;
 	uint32_t total = 0;
 	double t;
+	stress_bitgen_t bg;
+	uint64_t v64 = 0;
+	uint32_t vbits = 0;
 
 	t = stress_time_now();
+	stress_bitgen_init(&bg);
 	for (j = 0; j < buffer_size; j++) {
-		register const uint8_t v = j & 0xff;
+		/*  SDC-directed write data (P6): the value written into
+		 *  the cache lines comes from the bitgen mutation stream
+		 *  (bandwalk/boundary shapes) instead of the loop
+		 *  counter's low byte, so the cache write path carries
+		 *  varied bit patterns rather than a linear ramp.  This
+		 *  path has no verify state to preserve (the read side
+		 *  only accumulates), so no oracle is affected */
+		if (vbits < 8) {
+			v64 = stress_bitgen_u64(&bg);
+			vbits = 64;
+		}
+		{
+			register const uint8_t v = (uint8_t)(v64 & 0xff);
 
-		i += inc;
-		i = (i >= buffer_size) ? i - buffer_size : i;
-		k += 33;
-		k = (k >= buffer_size) ? k - buffer_size : k;
-		buffer[i] = v;
-		buffer[k] = v;
+			v64 >>= 8;
+			vbits -= 8;
+			i += inc;
+			i = (i >= buffer_size) ? i - buffer_size : i;
+			k += 33;
+			k = (k >= buffer_size) ? k - buffer_size : k;
+			buffer[i] = v;
+			buffer[k] = v;
+		}
 		if (UNLIKELY(!stress_continue_flag()))
 			break;
 	}
