@@ -103,9 +103,9 @@ CP1（Kunpeng 950 7592C，2 socket / 95C×2T=190 物理核 / 382 逻辑 CPU / SV
 - [x] 监控发现：连续两天 schedule run 16/16 sequential 失败 vs dispatch 同 head 全绿
 - [x] 根因定位：SEQ_TIMEOUT 兜底 '5' vs dispatch '2'；实测 11.1min vs 90.0min 铁证
 - [x] 修复推送（6baae011d）+ YAML 校验
-- [ ] 盯今日 run 35501026920 收尾（失败已归因，无需行动）
-- [ ] 盯明日 12:00 cron run：新代码 + 修复的首个 15 镜像全绿
-- [ ] 一周后：ci-trend.sh 对比变异前后 bogo-ops 稳定性
+- [x] 盯今日 run 35501026920 收尾：completed/failure（16/16 sequential 超时，全归因 SEQ_TIMEOUT bug，head 早于修复推送，符合预期）
+- [x] 盯明日 12:00 cron run：**35583732044 全绿**（2026-09-21T09:30Z 创建——GitHub cron 延迟 5.5h 属其常态；head=071500589 含全部新代码；build-test 15/15 success、method sweep 15/15、sequential 15/15——P3-P6 + SEQ_TIMEOUT 修复首验通过，rand-payload 经 method sweep 全枚举在 15 镜像（含 20.03 gcc 7.3）编译并运行通过）
+- [ ] 一周后：ci-trend.sh 对比变异前后 bogo-ops 稳定性（2026-09-27 前后，需 gh 认证环境或参照 ci-monitor 的 API 模式改造）
 
 ### Phase 10c: P6 — cache 系列 rand-payload opt-in 方法（2026-09-20） — complete（3 commits 推送 ee0ba8b04..5464927a6）
 - [x] 通读三文件结构 + 纸上定骨架（教训 3 兑现：先骨架后动笔，无一行废弃代码）

@@ -18,10 +18,18 @@
 - commit 6baae011d：兜底值 `'5'`→`'2'`（对齐 dispatch 默认与实测预算），YAML 校验过，已推送
 - 同 commit 入库 `scripts/ci-monitor.sh`（匿名 API 无需 gh/token）：latest 总览 / `--watch` per-job 结论+失败步骤定位 / `--new-code` 找 push 后首个 run
 
-### 监控任务清单（进行中）
-1. 今日 run 35501026920 收尾状态（旧代码，已知会红——失败全归因 SEQ_TIMEOUT bug，不代表代码问题）
-2. **明日 12:00（北京时间）cron**：首个含 P3-P6 新代码（d48246ebc..6baae011d）的 15 镜像 run——SEQ_TIMEOUT 修复后应全绿；rand-payload 方法会进 method sweep 自动覆盖
-3. 一周后：ci-trend.sh 稳定性对比（需在可认证环境运行）
+### 监控任务清单（2026-09-21 收官）
+1. ✅ 今日 run 35501026920 收尾：completed/failure（16/16 sequential 超时，全归因 SEQ_TIMEOUT bug，符合预期）
+2. ✅ **明日 cron 首验：run 35583732044 全绿**——GitHub cron 实际创建于 09:30Z（延迟 5.5h，其常态），head=071500589：
+   - build-test **15/15 success**、method sweep **15/15**、sequential **15/15**
+   - P3-P6（yaml verify-failures 字段/sdc-report/abtest/ci-trend/bitgen 校准链/rand-payload 三件套）+ SEQ_TIMEOUT 修复全部通过 15 镜像验证
+   - rand-payload 经 method sweep 全枚举在 15 镜像（含 20.03 gcc 7.3）编译并运行通过——本地验证的 gcc7.3 兜底承诺兑现
+3. ⏳ 一周后：ci-trend.sh 稳定性对比（2026-09-27 前后；注意 artifact 下载与 job log 均需认证，匿名 API 只有 run/job 元数据——届时需 gh 认证环境，或把 CI-MATRIX 行改经 workflow_run 事件回传）
+
+**监控过程沉淀的 GitHub 行为事实**（未来监控配置参考）：
+- cron 延迟 4.5-5.5h 是常态（04:00Z 预定 → 08:27-09:30Z 创建），检查点设在预定时间 +6h 以上才有意义
+- 匿名 API 限速 60/h 很容易在等待重查中烧光；每检查点单次调用纪律
+- 匿名可看：run/job 元数据、步骤结论；不可看：job logs、artifacts 内容（均 401/403 需认证）
 
 ## Session 2026-09-20（第十三轮·续）: P6 实施 — cache 系列 rand-payload
 
