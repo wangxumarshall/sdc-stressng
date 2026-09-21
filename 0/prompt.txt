@@ -1,0 +1,29 @@
+CI 监控例行检查（第十三轮 Phase 10d，每小时一次）。在 /home/sdc/wangxu/sdc-stressng 执行 `./scripts/ci-monitor.sh` 查看最新 run。判定逻辑：①今日 run 35501026920 结束后仅记录结论（已知 SEQ_TIMEOUT bug，红属预期）②若出现 2026-09-21T04:00Z 之后创建的新 cron run（head 应含 071500589 或更新）= 新代码（P3-P6）+SEQ_TIMEOUT 修复的首个 15 镜像验证——`./scripts/ci-monitor.sh --watch` 检查：全绿→task_plan.md Phase 10d 勾选"明日 cron 全绿"并汇报用户；有失败→定位失败 job 与步骤，区分环境噪声（opcode/text 偶发 rc=2、sp4 慢 runner 超时——progress.md 有历史甄别清单）vs 真代码问题（新方法 rand-payload 相关失败要重点查）③其余情况简短记录。连续 3 次检查无新事件后可汇报并建议降频。
+
+---
+
+CI 监控例行检查（第十三轮 Phase 10d，每小时一次）。在 /home/sdc/wangxu/sdc-stressng 执行 `./scripts/ci-monitor.sh` 查看最新 run。判定逻辑：①今日 run 35501026920 结束后仅记录结论（已知 SEQ_TIMEOUT bug，红属预期）②若出现 2026-09-21T04:00Z 之后创建的新 cron run（head 应含 071500589 或更新）= 新代码（P3-P6）+SEQ_TIMEOUT 修复的首个 15 镜像验证——`./scripts/ci-monitor.sh --watch` 检查：全绿→task_plan.md Phase 10d 勾选"明日 cron 全绿"并汇报用户；有失败→定位失败 job 与步骤，区分环境噪声（opcode/text 偶发 rc=2、sp4 慢 runner 超时——progress.md 有历史甄别清单）vs 真代码问题（新方法 rand-payload 相关失败要重点查）③其余情况简短记录。连续 3 次检查无新事件后可汇报并建议降频。
+
+---
+
+CI 监控例行检查（第十三轮 Phase 10d，每小时一次）。在 /home/sdc/wangxu/sdc-stressng 执行 `./scripts/ci-monitor.sh` 查看最新 run。判定逻辑：①今日 run 35501026920 结束后仅记录结论（已知 SEQ_TIMEOUT bug，红属预期）②若出现 2026-09-21T04:00Z 之后创建的新 cron run（head 应含 071500589 或更新）= 新代码（P3-P6）+SEQ_TIMEOUT 修复的首个 15 镜像验证——`./scripts/ci-monitor.sh --watch` 检查：全绿→task_plan.md Phase 10d 勾选"明日 cron 全绿"并汇报用户；有失败→定位失败 job 与步骤，区分环境噪声（opcode/text 偶发 rc=2、sp4 慢 runner 超时——progress.md 有历史甄别清单）vs 真代码问题（新方法 rand-payload 相关失败要重点查）③其余情况简短记录。连续 3 次检查无新事件后可汇报并建议降频。
+
+---
+
+CI 监控例行检查（第十三轮 Phase 10d，每小时一次）。在 /home/sdc/wangxu/sdc-stressng 执行 `./scripts/ci-monitor.sh` 查看最新 run。判定逻辑：①今日 run 35501026920 结束后仅记录结论（已知 SEQ_TIMEOUT bug，红属预期）②若出现 2026-09-21T04:00Z 之后创建的新 cron run（head 应含 071500589 或更新）= 新代码（P3-P6）+SEQ_TIMEOUT 修复的首个 15 镜像验证——`./scripts/ci-monitor.sh --watch` 检查：全绿→task_plan.md Phase 10d 勾选"明日 cron 全绿"并汇报用户；有失败→定位失败 job 与步骤，区分环境噪声（opcode/text 偶发 rc=2、sp4 慢 runner 超时——progress.md 有历史甄别清单）vs 真代码问题（新方法 rand-payload 相关失败要重点查）③其余情况简短记录。连续 3 次检查无新事件后可汇报并建议降频。
+
+---
+
+CI 监控·明日 cron 首验检查（第十三轮 Phase 10d 关键节点）。在 /home/sdc/wangxu/sdc-stressng 执行：①`./scripts/ci-monitor.sh` 确认 2026-09-21T04:00Z 的 cron run 已创建（head 应含 071500589 或更新 = P3-P6 新代码 + SEQ_TIMEOUT 修复）②`./scripts/ci-monitor.sh --watch` 查看进行中/最终状态。判定：全绿→task_plan.md Phase 10d 勾选"明日 cron 全绿"并汇报用户；有失败→定位失败 job 与步骤，区分环境噪声（opcode/text 偶发 rc=2、sp4 慢 runner 超时——progress.md 有历史甄别清单）vs 真代码问题（rand-payload 新方法相关失败重点查）；run 刚启动未结束→再设 90 分钟后的一次性跟进检查。
+
+---
+
+CI 监控·明日 cron 首验检查（第十三轮 Phase 10d 关键节点，已修正时区：本地=北京 UTC+8，GitHub cron 在 04:00 UTC=本地 12:00 触发，此刻应已运行约 37 分钟）。在 /home/sdc/wangxu/sdc-stressng 执行：①`./scripts/ci-monitor.sh` 确认 2026-09-21T04:00Z 的 cron run 已创建（head 应含 071500589 或更新 = P3-P6 新代码 + SEQ_TIMEOUT 修复）②`./scripts/ci-monitor.sh --watch` 查看状态。判定：全绿→task_plan.md Phase 10d 勾选"明日 cron 全绿"并汇报用户；有失败→定位失败 job 与步骤，区分环境噪声（opcode/text 偶发 rc=2、sp4 慢 runner 超时——progress.md 有历史甄别清单）vs 真代码问题（rand-payload 新方法相关失败重点查）；run 仍在进行（正常需 2-3 小时）→再设本地 15:07（UTC 07:07）一次性跟进检查收尾状态。
+
+---
+
+CI 监控·cron 首验检查（第 3 次修正：GitHub cron 04:00Z 实际创建历史为 08:27-08:58Z，延迟 4.5-5h，此刻应已创建）。在 /home/sdc/wangxu/sdc-stressng 用**单次 API 调用**检查（匿名限速 60/h 已烧过一次，务必节约）：curl -s "https://api.github.com/repos/wangxumarshall/sdc-stressng/actions/workflows/360487474/runs?per_page=1" 解析最新 run。判定：①若新 schedule run 已创建（created_at 为今日、head 含 071500589 或更新）→ 记录 run id，用 --watch 查 job 状态（此时约进行中，正常 2-3h 完成），再设本地 20:40 一次性收尾检查 ②仍是旧 run 35501026920 → cron 延迟更重或今日未触发，再设本地 20:10 复查一次；若届时仍未触发，在 task_plan.md Phase 10d 记录"9/21 cron 未按预期触发，GitHub 延迟超常"，建议用户改用 workflow_dispatch 手动触发首验（网页 Actions 页面或 gh CLI）。
+
+---
+
+CI 监控·cron 末班复查（本地 20:10 = UTC 12:10，cron 04:00Z 已过 8 小时，远超历史延迟窗口）。在 /home/sdc/wangxu/sdc-stressng 用单次 API 调用检查：curl -s "https://api.github.com/repos/wangxumarshall/sdc-stressng/actions/workflows/360487474/runs?per_page=2"。判定：①新 schedule run 已创建（head 含 071500589 或更新）→ 记录 run id 与 --watch 状态，设 2.5h 后收尾检查 ②仍未触发 → 在 task_plan.md Phase 10d 记录"2026-09-21 cron 未按预期触发（GitHub 延迟超 8h 或丢弃）"，向用户汇报并建议：在 GitHub Actions 页面手动 workflow_dispatch 触发 multi-os-verify（参数默认即可，run_full_suite=true + sequential_timeout=2）完成 P3-P6 新代码首验——手动触发与 cron 等效且无延迟；同时说明明日的 cron 会照常再试。
