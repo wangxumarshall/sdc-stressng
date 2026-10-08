@@ -1,16 +1,22 @@
-# CLAUDE.md — sdc-stressng 开发指南
+# CLAUDE.md
 
-本仓库是 stress-ng 的 **arm64 服务器芯片 SDC 压测 fork**（上游 ColinIanKing/stress-ng）。
-开发、验证、文档的一切决策围绕一个目标：**在 arm64 服务器（Kunpeng 920/950 级）上把潜在 SDC（静默数据损坏）故障核逼出来**。
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+# sdc-stressng 开发指南 — arm64 SDC 激发引擎
+
+本仓库是 **arm64 SDC 激发引擎**（上游 ColinIanKing/stress-ng 0.22.00 线的 fork，当前版本 `0.22.00-sdc.1`）。
+开发、验证、文档的一切决策围绕一个目标：**把所有计算资源消耗在最大程度激发 arm64 服务器（Kunpeng 920/950 级）的 CPU SDC（静默数据损坏）上**。
+项目五层架构（硬件感知→数据形状→攻击面→激发杠杆→编排）见 docs/architecture.md；激发覆盖率矩阵与 gap 路线图见 docs/excitation-guide.md。
 
 ## 分工模型（不要越界）
 
 | 工具 | 角色 |
 |---|---|
-| SDCShield（../sdcshield） | **校验器**：273 个 golden 比对用例，判定"算错了没有"、报 cpu-mask |
-| 本仓库 stress-ng | **扰动器**：制造 di/dt、功耗、缓存/TLB/互联压力与边界时序，压缩弱核时序裕量 |
+| SDCShield（../sdcshield） | **检测器**：273 个 golden 比对用例，判定"算错了没有"、报 cpu-mask |
+| 本仓库 | **激发器**：制造 di/dt、功耗、缓存/TLB/互联压力、SMT 争用、边界时序与 SDC 定向数据形状，压缩弱核时序裕量 |
 
-stress-ng 的 `--verify` 是辅助报警，不是第二校验器。改进方向永远是"更强的激发"而非"重复的校验"。
+"把所有计算给激发"的落地：`sdc-run.sh excite` 纯激发模式（零 verify 哨兵，检测全交 SDCShield 并行）；`full` 模式保留 verify 作搭车哨兵。
+stress-ng 的 `--verify` 是辅助报警，不是第二校验器。改进方向永远是"更强的激发"而非"重复的校验"（backlog 的权威来源 = excitation-guide 的 gap 路线图）。
 
 ## 目标机事实（写命令/方案前先读，不要重新推导）
 
@@ -25,6 +31,7 @@ make clean && make -j$(nproc)   # 本机 gcc 12 即可；make clean 在拉取后
 ```
 
 - aarch64 构建自动探测 SVE2 工具链 + 硬件，两者都满足才注入 `-O3 -march=armv8.6-a+sve2+bf16+i8mm+sve2-bitperm`（`-O2` 下 GCC 仍用 NEON，SVE 必须 `-O3`）。交叉强制：`make MARCH_AARCH64_SVE2=1/0`。
+- 版本 = Makefile `VERSION` 单点（上游版本+`-sdc.N` 后缀）——上游 merge 时按设计只冲突这一行。
 - gcc 7.3（openEuler 20.03 容器 `openeuler-offline:20.03-LTS-SP4`）兼容性在本机容器一次验完，**不要**推给 CI 试错（历史上 8 轮 CI 迭代的教训）。
 - 所有新行为默认关闭或与旧值兼容。
 
@@ -39,8 +46,15 @@ make clean && make -j$(nproc)   # 本机 gcc 12 即可；make clean 在拉取后
 | ARM 专项 | `--ls64`（64B 原子访存）、`--rdrand`（RNDR）、`--tsc`（CNTVCT_EL0）、`--cache-flush/--cache-clwb`（DC CIVAC/CVAC）、`--memrate-method write64zva`（DC ZVA）、`--taskset physical`（SMT 感知）、`--rapl`（hwmon 功率） |
 | memrate 写模式 | `--memrate-write-pattern 0xaa|random|bandwalk|complement` |
 | vm 随机偏移 | `--vm-method rand-offset`（无放回 Fisher-Yates + bitgen 填充/同序校验） |
-| SDC 编排 | `scripts/sdc-run.sh full|scan|path|pair|all`（拓扑自推导；full 含 varyload di/dt + --preheat 热浸润；scan 逐物理核 + --keep-bg 背景压；pair SMT 争用矩阵） |
+| SDC 编排 | `scripts/sdc-run.sh excite\|full\|scan\|path\|pair\|abtest\|all`（拓扑自推导；**excite 纯激发**=零 verify 最宽组合；full 含 verify 哨兵 + varyload di/dt + --preheat 热浸润；scan 逐物理核 + --keep-bg 背景压；pair SMT 争用矩阵；abtest 双构建 A/B） |
 | 位级 verify 诊断 | fma/vecfp/matrix 失配输出：元素下标 + expected/actual + 翻转位数 + xor 掩码 |
+
+## 上游同步（已定策略，全文见 docs/upstream-sync.md）
+
+- 每上游 release（约月度）PR 方式 merge 一次（先例 PR #5）；merge 后必跑验证 6 步。
+- 冲突收敛：fork 定制优先新文件；共享文件改动收敛到标记区段；`README.md` 在 .gitattributes 标 `merge=ours`（本地需 `git config merge.ours.driver true`）。
+- `.github/` 的上游 workflow 已全部删除（FUNDING/.travis/ci-builds/container-image-*）——merge 时**保持删除**；fork 的 CI 只有 multi-os-verify.yml 与 release-image.yml。
+- 已证伪的假设备忘：fork 的 schedule **并非**默认禁用（上游 edge workflow 曾在本 fork 每日失败运行）——不要再引入上游 cron workflow。
 
 ## 验证纪律（每个 patch 的硬性流程）
 
@@ -50,6 +64,7 @@ make clean && make -j$(nproc)   # 本机 gcc 12 即可；make clean 在拉取后
 4. **gcc 7.3 容器**编译+冒烟
 5. **CI 15 镜像**（multi-os-verify.yml，openEuler 20.03/22.03/24.03 × 5 SP，每日 cron）：`--sequential --verify` 全量 + 62 个 `*-method all` sweep + 基准采样；新 stressor 自动进套件
 6. **性能零回归**：改动存储路径后对比带宽（噪声内才算过）
+7. **文档命令核查以实跑为准**：`--help | grep` 有假阴性（实例：sve2/ls64/memrate-write-pattern/bitgen-* 选项在二进制中但 help 文本 grep 不到）——写进文档的命令必须实际运行验证
 
 ## 代码纪律（12 轮踩坑沉淀，违反必翻车）
 
@@ -74,13 +89,18 @@ make clean && make -j$(nproc)   # 本机 gcc 12 即可；make clean 在拉取后
 - **SDC 频率低至 0.01 次/分钟**：变异模式必须可长期循环不重复；数千次迭代长 soak + 周期性重复。
 - **ARM 服务器无硬件冗余**（无 lockstep、RAS 管不了无检错通路）→ 软件扰动器 + golden 比对是唯一路线。
 
-## 文档结构
+## 文档结构与语言规范
 
-- `docs/superpowers/research/` — 每轮研究报告（盘点/文献）
-- `docs/superpowers/plans/` — 每轮实施方案（patch 清单+验证计划）
-- `findings.md` / `task_plan.md` / `progress.md` — 工作记忆（planning-with-files）
-- 上游内容（README 的跨平台构建说明、bugs 清单等）保留但排在 fork 能力之后
+- **用户向文档（英文）**：README.md、docs/{architecture,excitation-guide,sdcshield-integration,upstream-sync}.md、CHANGELOG.md、SECURITY.md、CONTRIBUTING.md、SUPPORT.md、man 页（stress-ng.1）
+- **内部工作记忆（中文，有意为之）**：CLAUDE.md（本文件）、findings.md / task_plan.md / progress.md（planning-with-files 三件套）、docs/superpowers/{research,plans}/（每轮研究/方案归档）
+- 语言规则：代码注释、commit message、用户向文档 = 英文；内部工程记忆 = 中文
 
-## 当前遗留（见 findings.md §11）
+## CI 与发布
 
-bandwalk 窗口参数校准（需真机位翻分布）、cache 系列字粒度 tag 重设计、pagemap PFN 导向（需 root）、真机 A/B 回归（sdc-run + SDCShield 失配率对比）、CI 时序趋势工具。
+- `multi-os-verify.yml`：每日 cron + 手动 dispatch，15 个 openEuler arm64 镜像（20.03/22.03/24.03 × 5 SP）全量验证 + CI-MATRIX 结果矩阵；`scripts/ci-monitor.sh`（匿名 API）监控
+- `release-image.yml`：on release published → 从 tag 构建 → 推 `ghcr.io/wangxumarshall/sdc-stressng:{stable,<tag>}`（arm64 only）
+- 发布流程：CI 15/15 全绿 → `git tag v<VERSION> && git push origin <tag>` → GitHub Release（notes 摘 CHANGELOG 对应节）→ 镜像自动构建 → ghcr manifest 200 验证
+
+## 当前遗留（backlog，权威来源 = docs/excitation-guide.md gap 路线图）
+
+互联/L3 跨实例定向激发、lrcpc/ilrcpc 通路、SMT×MMU/atomics pair 组合扩展、OoO 调度器压力、真机 bitgen 校准闭环（sdc-flip-collect.sh 待 CP1 数据）、ci-trend.sh 一周稳定性对比（需认证环境）、CP1 真机 A/B 长跑（abtest 已就绪）。
