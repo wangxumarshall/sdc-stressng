@@ -111,10 +111,11 @@ make clean && make -j$(nproc)        # aarch64: SVE2 toolchain + HW auto-detecte
 
 # The full diagnostic funnel (trigger → localise → attribute)
 NG=./stress-ng ./scripts/sdc-run.sh all
-```
 
-For a pure excitation run with detection delegated entirely to SDCShield
-running alongside, use `sdc-run.sh full --sdcshield "<SDCShield command>"`.
+# Pure excitation — every cycle to load, detection delegated to SDCShield
+NG=./stress-ng ./scripts/sdc-run.sh excite -t 7200 --preheat 10 \
+    --sdcshield "./run-sdcshield.sh"
+```
 
 ## The sdc-run orchestrator
 
@@ -124,6 +125,7 @@ on a Kunpeng 920 (128 CPUs, no SMT) and a Kunpeng 950 (382 CPUs, SMT2):
 
 | Mode | Purpose |
 |---|---|
+| `excite` | **Pure excitation**: the widest load mix (cpu + fma + armcrypto + operand-var + addrspace + memrate + vm, all shaped) with **no** verify sentinels — every cycle goes to excitation; detection is fully delegated to SDCShield (`--sdcshield`). rc=0 means "excitation completed", not "machine healthy". |
 | `full` | Stage 1 *trigger*: all-cores load (cpu + fma + operand-var + addrspace, verify sentinels on) + varyload di/dt steps + optional `--preheat` and `--sdcshield` |
 | `scan` | Stage 2 *localise*: sweep every physical core (SMT pairs), per-core yaml metrics, suspects list; `--keep-bg N` keeps machine-wide concurrency alive while sweeping |
 | `path` | Stage 3 *attribute*: datapath golden cross-checks (sve2 / ls64 / crc32) — a mismatch is direct SDC evidence for that datapath |

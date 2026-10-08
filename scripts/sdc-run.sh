@@ -36,6 +36,13 @@
 #	NG=./stress-ng ./scripts/sdc-run.sh <mode> [options]
 #
 #	Modes:
+#	  excite [-t secs] [-o dir] [--sdcshield CMD] [--preheat mins]
+#	         pure excitation: the widest load mix (cpu/fma/armcrypto/
+#	         operand-var/addrspace/memrate-bandwalk/vm-rand-offset) with
+#	         NO --verify sentinels - every cycle goes to excitation and
+#	         detection is delegated entirely to SDCShield running
+#	         alongside (--sdcshield).  rc=0 here means "excitation
+#	         completed", NOT "machine healthy".  Default duration 2h.
 #	  full   [-t secs] [-o dir] [--sdcshield CMD] [--preheat mins]
 #	         default duration 2h
 #	  scan   [-t secs-per-core] [-o dir] [--sdcshield CMD]
@@ -96,12 +103,12 @@ SDCSHIELD_ARG=""
 KEEP_BG=0
 PREHEAT=0
 
-usage() { sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 #  Parse arguments
 while [ $# -gt 0 ]; do
 	case "$1" in
-	full|scan|path|pair|abtest|all)
+	excite|full|scan|path|pair|abtest|all)
 		MODE="$1"; shift ;;
 	-t)
 		DUR="$2"; shift 2 ;;
@@ -122,7 +129,7 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
-[ -n "$MODE" ] || { echo "error: mode required (full|scan|path|all)" >&2; usage 1; }
+[ -n "$MODE" ] || { echo "error: mode required (excite|full|scan|path|pair|abtest|all)" >&2; usage 1; }
 [ -x "$NG" ] || { echo "error: stress-ng not found or not executable: $NG (set NG=...)" >&2; exit 1; }
 
 #  ---------------------------------------------------------------------------
@@ -312,6 +319,87 @@ run_full()
 	#  stressor, first-mismatch position, sdcshield summary - the
 	#  report file is diffable between run directories
 	"$SCRIPT_DIR/sdc-report.sh" "$out"
+	return $rc
+}
+
+#  ---------------------------------------------------------------------------
+#  Mode: excite - pure excitation, no verify sentinels
+#
+#  The excitation-first mode: every cycle goes to load.  No --verify
+#  is attached (detection is SDCShield's job - run it alongside via
+#  --sdcshield).  The recipe widens full's compute mix with the crypto
+#  and memory-shape stressors:
+#
+#    cpu         x N_PHYS  cpu-method all (ALU/branch method mix)
+#    fma         x N_PHYS  vector pipelines (SVE2 kernels where present)
+#    armcrypto   x N_PHYS  crypto engines (13 methods)
+#    operand-var x N_PHYS  shaped operands on real compute paths (its
+#                built-in golden replay is intrinsic to the stressor;
+#                the shaping itself is the excitation)
+#    addrspace   x 2       MMU/TLB address shapes
+#    memrate     x 2       LSU + bandwalk-shaped writes
+#    vm          x 2       VM subsystem + dense random offsets
+#    varyload    x 64      di/dt load steps
+#
+#  rc=0 here means "excitation completed", NOT "machine healthy".
+#  ---------------------------------------------------------------------------
+run_excite()
+{
+	local out=${OUT:-sdc_excite_${TS}}
+	local dur=${DUR:-7200}
+	local rc=0
+	mkdir -p "$out"
+
+	echo "=== mode excite: pure excitation ${dur}s, no verify sentinels (detection: SDCShield) ==="
+	[ -n "$SDCSHIELD_ARG" ] && echo "                SDCShield: $SDCSHIELD_ARG"
+
+	if [ "$PREHEAT" -gt 0 ]; then
+		echo "=== preheat: $PREHEAT min all-core fma+vecfp heat load ==="
+		"$NG" --fma "$N_PHYSICAL" --taskset physical \
+		      --vecfp "$N_PHYSICAL" \
+		      -t $((PREHEAT * 60))s > "$out/preheat.log" 2>&1
+		echo "    preheat done (rc=$?)"
+	fi
+
+	{
+		echo "mode=excite duration=${dur}s physical=$N_PHYSICAL logical=$N_LOGICAL smt=$SMT"
+		echo "sve2=$HAS_SVE2 ls64=$HAS_LS64 crc32=$HAS_CRC32"
+		echo "isolated=$isolated_list offline=$offline_list"
+	} > "$out/topology.txt"
+	local total_mem_mb
+	total_mem_mb=$(awk '/^MemTotal:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 262144)
+
+	"$NG" --cpu "$N_PHYSICAL" --taskset physical --cpu-method all \
+	      --fma "$N_PHYSICAL" \
+	      --armcrypto "$N_PHYSICAL" \
+	      --operand-var "$N_PHYSICAL" \
+	      --addrspace 2 --addrspace-bytes "$(( total_mem_mb / 4 ))m" \
+	      --memrate 2 --memrate-write-pattern bandwalk \
+	      --vm 2 --vm-method rand-offset \
+	      --varyload 64 --varyload-ms 20 \
+	      --interrupts -K --thermalstat 30 \
+	      --metrics -Y "$out/A_excite.yaml" -t "${dur}s" \
+	      > "$out/A_excite.log" 2>&1 &
+	local ng_pid=$!
+	echo "stress-ng pid $ng_pid, log $out/A_excite.log"
+
+	if [ -n "$SDCSHIELD_ARG" ]; then
+		# shellcheck disable=SC2086
+		timeout --signal=TERM --kill-after=30 $((dur + 120)) \
+			$SDCSHIELD_ARG -T forever -t "${dur}s" -Y -F \
+			-e 'zstd19' -e 'zlib*' -e 'fma*' -e 'crc32' -e 'isal_crc*' \
+			> "$out/sdcshield.log" 2>&1
+		rc=$?
+		echo "SDCShield exit: $rc"
+		kill "$ng_pid" 2>/dev/null || true
+		wait "$ng_pid" 2>/dev/null || true
+	else
+		wait "$ng_pid"
+		rc=$?
+	fi
+
+	echo "=== excite done (rc=$rc), results in $out ==="
+	echo "    (rc=0 = excitation completed, not a health verdict - see sdcshield.log / A_excite.yaml)"
 	return $rc
 }
 
@@ -615,6 +703,7 @@ run_all()
 }
 
 case "$MODE" in
+excite)	run_excite ;;
 full)	run_full ;;
 scan)	run_scan ;;
 path)	run_path ;;

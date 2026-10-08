@@ -69,6 +69,10 @@ validated on 15 openEuler CI images.
 
 ### Orchestration and diagnostics (layers L4/L5)
 
+- `excite` mode: pure-excitation orchestration — the widest load mix
+  (cpu/fma/armcrypto/operand-var/addrspace/memrate-bandwalk/vm-rand-offset)
+  with no verify sentinels; every cycle goes to excitation, detection fully
+  delegated to SDCShield. `rc=0` documents completion, not health.
 - `scripts/sdc-run.sh`: topology self-deriving entry point — `full` /
   `scan` / `path` / `pair` / `abtest` modes; `--preheat` residual-heat
   window before the verify window; `--keep-bg` background concurrency during
