@@ -47,34 +47,35 @@
 - [x] patch 清单 A-E 组 + 执行顺序（findings §12.4）
 - [x] 决策点呈报（findings §12.5 → AskUserQuestion）
 
-### Phase 3: GitHub 门面（A 组）
-- [ ] A1 repo 元数据：description/homepage/topics（+关 wiki）——curl PATCH api.github.com + PAT
-- [ ] A2 README 重写（语言按 D14-1）：定位/badge/架构图/快速上手/能力矩阵/SDCShield 协作/上游致谢/安全警示
-- [ ] A3 SECURITY.md + CONTRIBUTING.md + SUPPORT.md
-- [ ] A4 CHANGELOG.md + 首个 GitHub Release（v0.22.00-sdc.1）
-- [ ] A5 .github/ISSUE_TEMPLATE（bug/feature）+ PULL_REQUEST_TEMPLATE
-- [ ] A6 上游残留清理：FUNDING.yml / .travis.yml / 3 个上游 workflow 处置（联动 D14-3）
+### Phase 3: GitHub 门面（A 组） — complete
+- [x] A1 repo 元数据：description（SDC excitation engine…）+ homepage 置空 + 12 topics + 关 wiki —— PATCH/PUT 200 均生效（回读验证）
+- [x] A2 README 重写（7a8920737 + excite 增补 2de8f41d5）：badge/问题陈述/五层架构图/杠杆表/攻击面表/快速上手/编排器/CI/构建/文档索引/上游关系/安全警示
+- [x] A3 SECURITY.md + CONTRIBUTING.md + SUPPORT.md（b984d8f62）
+- [x] A4 CHANGELOG.md（eb127c60a）；**GitHub Release 待 E3 CI 全绿后打 tag**（D14-6）
+- [x] A5 issue forms（bug/feature/config）+ PR 模板（28bf16304，YAML 校验过）
+- [x] A6 上游残留清理（158ab37c2）：FUNDING/.travis/ci-builds/container-image-{edge,stable} 五文件删除，引用检查零残留
 
-### Phase 4: docs 用户文档（B 组）
-- [ ] B1 docs/architecture.md（五层架构 mermaid + 各层职责 + 设计决策记录）
-- [ ] B2 docs/excitation-guide.md（激发覆盖率矩阵：杠杆×通路×数据形状 + 方法论 + 文献引用）
-- [ ] B3 docs/sdcshield-integration.md（协同作战手册：双工具拓扑/剧本/报告对接）
-- [ ] B4 docs/upstream-sync.md（同步策略 + .gitattributes merge=ours 冲突收敛规范）
+### Phase 4: docs 用户文档（B 组） — complete
+- [x] B1 docs/architecture.md（a30695743：五层 ASCII 图 + 各层职责 + bitgen 纪律 + 数据流图 + AD-1..AD-7 设计决策）
+- [x] B2 docs/excitation-guide.md（a30695743 + 12197871c：三因素模型/杠杆表/**覆盖率矩阵**（●◐○）+ gap 路线图 + 模式配方审计 + campaign 组合规则）
+- [x] B3 docs/sdcshield-integration.md（00a7323a8：拓扑图/阶段 0 取证/四模式协同命令/报告交叉判读表）
+- [x] B4 docs/upstream-sync.md + .gitattributes（00a7323a8：每 release PR 合并节奏/文件分类冲突规则/merge=ours driver 配置/merge 后 6 步验证）
 
-### Phase 5: 代码层（C 组，one-patch-per-unit）
-- [ ] C1 sdc-run.sh `excite` 纯激发模式（无 --verify 组合，SDCShield 并行检测）
-- [ ] C2 激发默认值审计（full/excite 组合配比 vs CI-MATRIX bogo 数据，结论进 excitation-guide）
-- [ ] C3 fork 版本标识（--version → 0.22.00-sdc.1，Makefile 单点定义）
+### Phase 5: 代码层（C 组） — complete
+- [x] C1 sdc-run.sh `excite` 纯激发模式（2de8f41d5）：cpu all+fma+armcrypto+operand-var+addrspace+memrate-bandwalk+vm-rand-offset+varyload，无 verify 哨兵；顺带修 usage() 截断 bug（sed 2,60p → 2,/^$/p）；本机 10s 实测 rc=0/failed:0/产物齐
+- [x] C2 模式配方审计（12197871c）：excite vs full 配比决策记录进 excitation-guide（full 不加 crypto/memrate 的理由 = verify 预算竞争）
+- [x] C3 fork 版本标识（67050702d）：Makefile VERSION=0.22.00-sdc.1 单点；重编后 --version 实测输出 0.22.00-sdc.1
 
-### Phase 6: CI 与发布（D 组）
-- [ ] D1 multi-os-verify badge 接入 README
-- [ ] D2 Release 流水线：tag → Release + ghcr stable 镜像（改造 container-image-stable.yml 或并入 multi-os-verify publish）
+### Phase 6: CI 与发布（D 组） — complete
+- [x] D1 badge 接入 README（CI/Release/License/Arch 四 badge，随 A2 完成）
+- [x] D2 release-image.yml（7ea0daedd）：on release published → 从 tag 构建 → ghcr :stable+:<tag>，arm64 only；YAML 校验过；E2E 验证随 Release 触发
 
 ### Phase 7: 验证与收尾（E 组）
-- [ ] E1 README/docs 全部命令 parse-verified（当前二进制实测，13 轮纪律延续）
-- [ ] E2 快速上手 3 命令本机实测
-- [ ] E3 push 后 ci-monitor.sh --new-code 确认 15 镜像全绿
-- [ ] E4 badge/交叉链接检查；findings/progress 收尾；方案入库 docs/superpowers/plans/2026-10-08-*.md
+- [x] E1 README/docs 全部 34 个选项/命令实跑核查：30 项 --help grep 直接过；5 项（sve2/ls64/memrate-write-pattern/bitgen×2）grep 假阴性、实跑全通过（sve2/ls64 本机诚实跳过 + successful run）——以实跑为准
+- [x] E2 快速上手实测：operand-var 4 --verify 10s（failed:0 skipped:0）；addrspace 2 --verify（failed:0）；excite 10s（rc=0，A_excite.{log,yaml}+topology.txt 产物齐）
+- [ ] E3 CI 15 镜像全绿确认：**multi-os-verify 已 dispatch（204，head=7ea0daedd）**，预计 1-2h——完成后打 tag v0.22.00-sdc.1 + GitHub Release（触发 release-image E2E）
+- [x] E4 链接检查：docs/{architecture,excitation-guide,sdcshield-integration,upstream-sync}.md、SECURITY/CONTRIBUTING/SUPPORT/CHANGELOG/COPYING/CLAUDE.md、stress-ng.1、docs/superpowers/ 全部存在；badge URL 格式正确
+- [x] findings/progress 收尾 + 方案入库 docs/superpowers/plans/2026-10-08-project-overhaul.md
 
 ## Errors Encountered
 
@@ -83,6 +84,8 @@
 | git fetch upstream 443 超时 | 直连 github.com | 网络层限制；上游数据改走 api.github.com（release/commit 查询可用），方案不受阻 |
 | sed 打码正则 Invalid range end | 查 bashrc | 改 cut -d= -f1 仅列变量名 |
 | search_repositories 查本 repo 返回 0 | MCP | 改用 REST API curl 查询成功（搜索索引限制，不影响读写） |
+| 第一个 commit 误吞已暂存的 A6 删除 | A6+规划文件分离提交 | git reset HEAD~1 拆成两个干净 commit |
+| --help grep 报 5 选项 MISSING | E1 选项核查 | 实跑全部通过（sve2/ls64 诚实跳过 + successful run）——--help 文本格式致 grep 假阴性，选项核查以实跑为准 |
 
 ## Decisions Made
 
@@ -94,6 +97,13 @@
 | D14-4 | **全部 A-E 本轮执行**（用户采纳推荐） | "彻底改造"语义；每单元独立 commit |
 | D14-5 | 版本呈现 `0.22.00-sdc.1`（上游版本+fork 后缀，Makefile 单点）；项目名 sdc-stressng、二进制名 stress-ng 不改 | 兼容上游 merge 与既有 CI/文档；改名收益低、破坏面大 |
 | D14-6 | Release 打 tag 时机推迟到 E3（CI 15 镜像全绿）之后，A4 阶段只写 CHANGELOG 文件 | tag 应指向最终验证过的状态 |
+
+## Next Step
+
+**E3 收尾**：multi-os-verify run（head=7ea0daedd）预计 1-2h 完成。全绿后：
+1. `git tag v0.22.00-sdc.1 && git push origin v0.22.00-sdc.1`
+2. curl POST 创建 GitHub Release（notes 取 CHANGELOG [0.22.00-sdc.1] 节）→ 触发 release-image.yml E2E（ghcr :stable 镜像）
+3. 若红：按 ci-monitor.sh --new-code 定位失败镜像/步骤修复后重推
 
 ## 遗留转入（前 13 轮未闭环，不因本轮改造丢失）
 

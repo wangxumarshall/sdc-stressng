@@ -23,8 +23,30 @@
 - 5 决策点 AskUserQuestion 呈报（README 语言/纯激发模式/上游同步/范围/版本默认）
 
 ### 状态
-- Phase 1-2 complete（调研+方案设计，task_plan.md 已重写为第十四轮计划）
-- Phase 3-7（A-E 组执行）待用户决策后进行
+- Phase 1-2 complete（调研+方案设计）；**Phase 3-6 全部完成，Phase 7 仅剩 E3 CI 等待**
+
+### 执行记录（A-E 全链，12 commits 推送 4b74c6047..7ea0daedd）
+| 单元 | Commit | 验证 |
+|---|---|---|
+| 规划入库 | 168ae7387 | findings §12 + task_plan 重写 + progress |
+| A6 残留清理 | 158ab37c2 | FUNDING/.travis/3 workflow 删除；引用零残留 |
+| A1 元数据 | API PATCH/PUT 200 | description/topics×12/homepage 空/wiki off 回读确认 |
+| A2 README | 7a8920737(+2de8f41d5) | 887 行→~250 行英文门面；badge/五层图/快速上手 |
+| A3 治理 | b984d8f62 | SECURITY（预期行为 vs 漏洞边界）/CONTRIBUTING（6 步+代码纪律）/SUPPORT |
+| A5 模板 | 28bf16304 | issue forms YAML×3 校验过 + PR 模板 |
+| A4 CHANGELOG | eb127c60a | 13 轮按五层架构整理；Release 待 CI 绿（D14-6） |
+| B1/B2 架构+激发指南 | a30695743(+12197871c) | AD-1..7 决策；覆盖率矩阵 ●◐○ + gap 路线图 + 配方审计 |
+| B3/B4 协同+同步 | 00a7323a8 | 交叉判读表；merge=ours 规范+.gitattributes+本地 driver 已配 |
+| C1 excite 模式 | 2de8f41d5 | 本机 10s 实测 rc=0/failed:0/产物齐；usage 截断 bug 顺带修复 |
+| C3 版本标识 | 67050702d | 重编 --version 实测 0.22.00-sdc.1 |
+| C2 配方审计 | 12197871c | excite vs full 配比理由入库 excitation-guide |
+| D2 release 流水线 | 7ea0daedd | release-image.yml（ghcr :stable+:tag，arm64 only）YAML 校验过 |
+
+### E 组验证
+- E1 选项核查：34 项全过（5 项 --help grep 假阴性经实跑排除——教训：选项核查以实跑为准）
+- E2 快速上手：operand-var/addrspace --verify 零失配；excite 10s 成功
+- E4 链接：全部相对链接目标存在（docs×4/治理×4/CLAUDE.md/stress-ng.1）
+- E3 **进行中**：multi-os-verify 已 dispatch（204，head=7ea0daedd），预计 1-2h；绿→打 tag+Release→release-image E2E
 
 ## Session 2026-09-20（第十三轮·续2）: CI 监控启动 + 抓住并修复 schedule 超时 bug
 
