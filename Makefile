@@ -20,7 +20,7 @@
 #
 # Codename "Premday Process Pressurizer"
 #
-VERSION=0.22.00
+VERSION=0.22.00-sdc.1
 
 #
 # Determine supported toolchains
