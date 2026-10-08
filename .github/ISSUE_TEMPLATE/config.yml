@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/wangxumarshall/sdc-stressng#documentation
+    about: Architecture, excitation guide, SDCShield integration and upstream-sync docs.
+  - name: Upstream stress-ng
+    url: https://github.com/ColinIanKing/stress-ng
+    about: Questions about upstream stress-ng itself (other platforms, packaging).

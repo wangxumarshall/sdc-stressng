@@ -1,0 +1,29 @@
+name: Feature request
+description: New excitation capability, stressor, method or orchestration mode
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The bar for this repo: **does it make marginal cores more likely to
+        leak SDC?** Features that add detection/validation machinery belong in
+        SDCShield, not here.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Which excitation gap does this fill?
+      description: Which lever (di/dt, heat, SMT contention, data shape, …) or hardware pathway is under-excited today? Check docs/excitation-guide.md for the coverage matrix.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed mechanism
+      description: What load/shape/lever would you add, and why do you believe it raises SDC excitation probability? Citations welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Supporting evidence
+      description: Field observations, literature, microarchitectural reasoning, prior art (e.g. FIRESTARTER, CORE179, fARM).

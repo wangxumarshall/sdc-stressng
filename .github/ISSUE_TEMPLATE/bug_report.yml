@@ -1,0 +1,55 @@
+name: Bug report
+description: Something does not work as documented or crashes
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the report. Remember: this tool **intentionally** pushes
+        hardware past its normal envelope — high power, heat, OOM and
+        verify-failures on a marginal core are features, not bugs, unless the
+        tool itself misbehaves.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Also tell us what you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Exact command line
+      description: Include the full stress-ng / sdc-run.sh invocation.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: stress-ng version
+      description: Output of `./stress-ng --version`
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: CPU model, `lscpu` feature line, kernel version, distro, SMT/NUMA topology.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: Verify-mismatch lines, yaml snippets, sdc-run report.txt — anything that shows the failure.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Preflight
+      options:
+        - label: I checked the man page (`man stress-ng`) for the options involved
+          required: true
+        - label: This is about this fork's behaviour, not SDCShield detection or generic upstream stress-ng usage
+          required: true
