@@ -1,5 +1,16 @@
 # Progress Log
 
+# Progress Log
+
+## Session 2026-10-08（续）: Phase 8 上游同步 #1 — V0.22.01 并入 main
+
+D14-3 策略首次实战，全流程按 docs/upstream-sync.md 执行：
+- 网络突破：upstream remote 改 SSH（https 443 不通、SSH 一直通）→ fetch V0.22.01（仅落后 4 commits）
+- merge 冲突面 = 设计预期：仅 Makefile VERSION 单行（→0.22.01-sdc.1）；README 被 merge=ours driver 自动保住（冲突收敛规范首次实战验证 ✅）
+- 上游情报：上游宣布迁移 stress-ng/stress-ng org（remote URL 待跟迁）
+- 验证：全量构建 rc=0 + bitgen 消费者回归 4 项 failed:0 + 故障注入 drill（fma 位 45 被 verify 精确抓，位级诊断完整）+ 还原零残留
+- PR #6 → CI dispatch 到 sync 分支（run 37743339212 15/15 绿）→ merge → **main = 0.22.01-sdc.1（53eb6a5ab）**
+
 ## Session 2026-10-08（第十四轮）: 顶级开源项目化改造 — 调研与方案设计
 
 用户需求：本项目是 stress-ng fork，定位 arm64 SDC **激发**（相对 ../sdcshield 的检测角色），

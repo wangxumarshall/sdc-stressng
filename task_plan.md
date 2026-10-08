@@ -100,16 +100,16 @@
 
 ## Next Step
 
-**Phase 8 上游同步 #1 进行中**（V0.22.01）：本地验证全过（构建/bitgen 回归/故障注入
-drill），sync/upstream-0.22.01 已推 PR + CI dispatch——CI 绿后 merge PR 即闭环。
+**无未决项**。第十四轮全链闭环 + Phase 8 上游同步 #1 闭环（main = 0.22.01-sdc.1）。
+后续轮次候选：excitation-guide gap 路线图（互联定向/lrcpc/SMT×MMU/OoO）+ 真机窗口。
 
-### Phase 8: 上游同步 #1 — V0.22.01（2026-10-08，D14-3 策略首次执行） — in_progress
+### Phase 8: 上游同步 #1 — V0.22.01（2026-10-08，D14-3 策略首次执行） — complete
 - [x] upstream remote 改 SSH（https 443 不通、SSH 通——origin push 一直走 SSH）；fetch V0.22.01，落后仅 4 commits
 - [x] merge 到 sync/upstream-0.22.01：唯一冲突 = Makefile VERSION（按设计单行）→ 0.22.01-sdc.1；README 被 merge=ours driver 自动保住（**冲突收敛规范首次实战验证**）
 - [x] 上游情报：b42133a70 宣布上游迁移到 stress-ng/stress-ng org（upstream remote URL 后续需跟迁）
 - [x] 验证：make clean 全量 rc=0（--version=0.22.01-sdc.1）；bitgen 消费者回归 4 项（operand-var/addrspace/vm-rand-offset/memrate-bandwalk --verify）全 failed:0；**故障注入 drill**：fma double_a2[0] 注入位 45 → verify 精确抓到（element 0/expected/actual/1-bit/xor 0x2000000000000000 完整诊断）→ 还原后干净跑 + git diff 零残留
 - [x] CHANGELOG [0.22.01-sdc.1] 条目；gcc 7.3 与全量 CI 由 20.03 镜像在 dispatch 中兜底
-- [ ] push 分支 + PR + dispatch CI（ref=sync/upstream-0.22.01）→ 15 镜像绿 → merge PR
+- [x] **sync #1 闭环**：PR #6 + CI run 37743339212（sync 分支 15/15 绿）→ merge → main = 0.22.01-sdc.1（53eb6a5ab）
 
 ## 遗留转入（前 13 轮未闭环，不因本轮改造丢失）
 
