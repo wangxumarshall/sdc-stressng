@@ -1,196 +1,103 @@
-# Task Plan: stress-ng × SDCShield 协同压测 Kunpeng 920 SDC 故障核
+# Task Plan: sdc-stressng 顶级开源项目化改造 — arm64 SDC 激发引擎（第十四轮）
+
+> 前序任务（13 轮：SDCShield 协同方案→移植→饱和→变异→CI→报告）已全部完成，
+> 记录归档于 docs/superpowers/{plans,research}/ 与 git 历史。未闭环项见文末"遗留转入"。
 
 ## Goal
 
-CP1（Kunpeng 950 7592C，2 socket / 95C×2T=190 物理核 / 382 逻辑 CPU / SVE2+crypto+LSE）出现过 CPU 核隔离、自检失败现象，怀疑存在 SDC（静默数据损坏）故障核。本任务：
+本项目（https://github.com/wangxumarshall/sdc-stressng，上游 https://github.com/ColinIanKing/stress-ng）
+是 stress-ng 的 fork，13 轮开发已沉淀完整 SDC 激发能力。本轮**彻底改造为顶级完备的 GitHub 开源项目**：
 
-1. 结合设备 CPU 特性（SVE2/SVE、NEON、CRC32、atomics、ls64 等），识别 stress-ng 中能配合 SDCShield 检出 SDC 的能力与缺口；
-2. 设计 stress-ng 改进方案（作为 SDCShield 的"环境扰动器 / 压力背景"，而不是重复做结果校验）；
-3. 给出 stress-ng 端到端的压测命令，与 SDCShield 协同定位 SDC 故障核。
+1. **定位重塑**：从"fork + 补丁集"变为独立项目叙事——**arm64 SDC 激发引擎**。
+   相对 ../sdcshield（校验器：273 golden 用例判 SDC、报故障核），本项目唯一核心价值 = **激发**：
+   把所有计算资源消耗在最大程度把 CPU SDC 逼出来（di/dt、功耗、缓存/TLB/互联压力、
+   SMT 争用、边界时序、SDC 定向数据形状）；检测/判定/定位全部交给 SDCShield。
+2. **架构设计**：五层激发引擎架构（findings §12.3），现有散装能力收编进统一分层，
+   交付激发覆盖率矩阵（杠杆 × 通路 × 数据形状）。
+3. **GitHub 项目信息**：repo 元数据（当前还是上游原文！）、双语 README、治理文件、
+   模板、上游残留清理（FUNDING.yml 指向上游作者收款账号等）。
+4. **方案实现**：sdc-run `excite` 纯激发模式 + 激发默认值审计 + fork 版本标识。
+5. **验证**：文档命令全量 parse-verified + 快速上手实测 + CI 15 镜像全绿 + 链接检查。
 
-**核心分工原则**（来自 /home/sdc/wangxu/kunpeng920_sdc_plan.md 的方法论）：
-- SDCShield = 校验器（golden 比对，判定 SDC 与否，报告哪个核 fail）
-- stress-ng = 环境扰动器（压 di/dt、压功耗、压缓存/TLB/互联、制造边界时序条件，把"潜在弱核"逼出 SDC）
+## 现状快照（2026-10-08 调研 facts，不要重新推导）
 
-## Target machine facts (from user's lscpu, MUST NOT re-derive)
-
-| 项 | 值 | 含义 |
-|---|---|---|
-| CPU | Kunpeng 950 7592C, HiSilicon, family 280 | 目标机型（注意：不是本机！本机是 920/128 核） |
-| 拓扑 | 2 sockets × 95 cores × 2 threads = 382 CPU | SMT=2，**同核两超线程共享执行资源** |
-| NUMA | node0=0-191, node1=192-381，每 socket 一个 node | 跨 socket 访存最远 |
-| 频率 | 2.3GHz max / 1.2GHz min, boost disabled, scaling 100% | 固定频率，电压/频率诱因需靠负载形态 |
-| 特性 | SVE2（sveaes/svepmull/svesha3/svesm4/svebitperm/svei8mm/svebf16）、SVE、NEON(asimd)、crc32、atomics(LSE)、ls64/ls64_v、rng、fphp/asimdhp、sm3/sm4/sha1/sha2/sha3、dit、uscat、lrcpc/ilrcpc、dgh、rpres、wfxt、hbc | ARMv9.x 级特性集 |
-| Cache | L1d 64KB/核(11.9MiB/191)、L1i 128KB/核、L2 1MB/核(191MiB)、L3 546MiB/24 实例（≈22.75MB/实例，共享组） | L3 分 24 个实例 |
-| CP1 现象 | CPU 核隔离 + CP1 自检失败 | 已有核被隔离的先兆 |
-
-**注意**：本机（开发机）是 Kunpeng 920 / 128 CPU / 无 SMT / 4 NUMA node —— 与目标机不同。stress-ng 改动的验证在本机做，端到端命令面向目标机写。
+| 项 | 现状 |
+|---|---|
+| repo 元数据 | **description/homepage 均为上游原文**（description="This is the stress-ng upstream project..."、homepage→上游 repo）；topics 空；wiki 开启；fork:true（GitHub network 连上游） |
+| fork 代码规模 | 110 commits（自 0fd4437b5 起），100 files，+11315/-293 |
+| 上游基线 | 0.22.00（2026-08-19）；上游最新 V0.22.01（2026-09-20）+ 日常高频 commit；同步先例 PR #5（8 修复无冲突） |
+| README | 中文 fork 定位（第十三轮版）+ 上游英文原文拼接；无 badge/架构图/英文版 |
+| 治理文件 | 无 SECURITY/CONTRIBUTING/CHANGELOG/SUPPORT；无 issue/PR 模板/CODEOWNERS |
+| 上游残留 | FUNDING.yml=Colin King 收款账号（github/patreon/ko_fi/liberapay）；.travis.yml（上游已弃）；ci-builds.yml（上游多平台手动构建）；container-image-edge.yml（on: push master + 每日 cron）；container-image-stable.yml（on: release published） |
+| 发布 | 从未 GitHub Release；VERSION=0.22.00 无 fork 标识 |
+| docs/ | 仅 superpowers/{research×12, plans×7} 内部研发记录；无用户向架构/方法论文档 |
+| CI | multi-os-verify.yml 每日 15 镜像（最近全绿 run 35583732044）；ghcr verify-<tag> 手动发布流已就绪 |
+| 网络/凭据 | api.github.com 直连可达（curl 200）；github.com:443 git 协议超时；PAT=~/.bashrc 的 GITHUB_PERSONAL_ACCESS_TOKEN（repo 元数据 PATCH 可用）；MCP GitHub=用户本人（wangxumarshall）；gh CLI 未装 |
 
 ## Phases
 
-### Phase 1: 调研 stress-ng 现有能力与 SDC 相关缺口 — complete
-- [x] 盘点 --verify 覆盖的 stressor（342/390 文件含 verify 逻辑）
-- [x] 盘点 CPU/内存/缓存/NUMA/原子 相关 stressor 与方法列表（cpu-method × 71、vm-method × 39、cacheline-method × 13）
-- [x] 确认 --taskset / --affinity-pin / --taskset-random CPU 绑定能力（实测 `--taskset 0-3 --cpu 2 -t 2` → passed: 2）
-- [x] 确认 SDCShield 侧能力（273 用例、EDAC/RAS、--dump-cpu-info、-Y continue-on-error、-n 1 线程数、-e 选择、-F first-fail-stop）
-- [x] 通读 kunpeng920_sdc_plan.md 的模块脆弱性模型（MMU 20% / L2C 40% / LSU 54% / OoO 56% 覆盖率最低）
+### Phase 1: 现状调研与差距分析 — complete（2026-10-08）
+- [x] repo 元数据/文档/CI/发布/上游残留全量盘点（上表）
+- [x] 顶级项目标准差距表 G-1..G-10（findings §12.1）
+- [x] 网络+凭据通路验证（api.github.com + PAT）
 
-### Phase 1b: 核实外部建议的代码事实断言 — complete
-- [x] Makefile 无 ARM -march：**真**（grep march/mcpu/mtune 无输出，默认 -O2）
-- [x] target_clones 仅 x86/ppc64：**真**（core-target-clones.h:36 STRESS_ARCH_X86、:398 PPC64；ARM 落到空 `#define TARGET_CLONES`，stress-fma.c 的 TARGET_CLONES 在 ARM 上是 no-op）
-- [x] 默认构建无 SVE 指令：**真且比建议更强**——objdump 实测 182 个 fmla 全是 NEON v 寄存器形式，`ld1d/ptrue/whilelo` 计数为 **0**（z 寄存器形式 fmla 也是 0）
-- [x] fma/vecfp/matrix 是 VERIFY_OPTIONAL：**真**（stress-fma.c:625、stress-vecfp.c:518/534、stress-matrix.c:1069/1088）
-- [x] fma verify = 同算两遍 memcmp：**真**（stress-fma.c:568-586，错误信息 "data difference between identical double fma computations"）
-- [x] --taskset 无 physical 关键字：**真**（core-affinity.c:264-273 仅 package/cluster/die/core + even/odd/all/random；man stress-ng.1:1088-1123 同）
-- [x] --ignite-cpu 仅 Intel P-State x86：**真**（stress-ng.1:561 原文）
-- [x] varyload/varyload-ms/cpu-load-slice/mbind/interrupts/klog-check/thermalstat/tz/seed/-Y yaml 存在：**真**（core-opts.c:1770-1772/221/809/598/680/1711/1719/1369 + -h 确认）
-- [x] **修正1**：建议给的 `-march=armv8.2-a+sve2+svebf16+i8mm` 在 gcc 12.3.1 上**编译失败**（invalid feature modifier 'svebf16'）。实测可用拼写：`armv8.6-a+sve2+bf16+i8mm` 或 `armv8.2-a+sve2+bf16+i8mm`（gcc 报错信息列出的合法修饰符：sve2/sve2-sm4/sve2-aes/sve2-sha3/sve2-bitperm/i8mm/bf16/ls64/...）
-- [x] **修正2**：建议命令里 `--cdouble 95`、`--cpu-method cdouble --fma 95` 混用——cdouble 是 **cpu-method** 不是独立 stressor（实测 `--cdouble 1` 报 unrecognised option；`--cpu 1 --cpu-method cdouble` 正常）。阶段B命令已改写
-- [x] **修正3**：fma/vecfp 是**纯 C 循环**（无 intrinsics/asm），ARM 上 TARGET_CLONES 为空 → 即便 -march=sve2 重编，自动向量化理论上可生成 SVE，但**必须 objdump 复核**（这是 L0 的验收门，不是可选项）
-- [x] eigen 在本 fork 是 `--eigen`（stress-eigen.c，VERIFY_ALWAYS），依赖 HAVE_EIGEN（本机未配置 → 诚实跳过）。建议里 "eigen/matrixprod" 分组有效，但 eigen 需构建机装 eigen C++ 库
-- [x] 建议的负载分组 stressor 全部存在且可运行（实测 regs/opcode/ptr-chase/spinmem/misaligned/vecmath/memrate/l1cache/intmath 均 successful run）
+### Phase 2: 架构与改造方案设计 — complete（2026-10-08，决策点待用户）
+- [x] 五层激发引擎架构（findings §12.3）
+- [x] "所有计算给激发"落地设计：excite vs full 双模式（findings §12.4-C）
+- [x] patch 清单 A-E 组 + 执行顺序（findings §12.4）
+- [x] 决策点呈报（findings §12.5 → AskUserQuestion）
 
-### Phase 2: 差距分析 — complete
-- [x] 逐维度对照：di/dt 与电压裕量 / 缓存与互联 / TLB 与页表 / LSU 边界 / 原子与互联一致性 / SVE2 数据通路 / 温度
-- [x] 明确 stress-ng 已覆盖 vs 需新增/改进的点（见 findings.md 差距表）
-- [x] 定义每个改进点的"检出机理"（为什么能帮 SDCShield 检出 SDC）
-- [x] 吸收外部建议的 7 个优化点（含验证结论与修正）
+### Phase 3: GitHub 门面（A 组）
+- [ ] A1 repo 元数据：description/homepage/topics（+关 wiki）——curl PATCH api.github.com + PAT
+- [ ] A2 README 重写（语言按 D14-1）：定位/badge/架构图/快速上手/能力矩阵/SDCShield 协作/上游致谢/安全警示
+- [ ] A3 SECURITY.md + CONTRIBUTING.md + SUPPORT.md
+- [ ] A4 CHANGELOG.md + 首个 GitHub Release（v0.22.00-sdc.1）
+- [ ] A5 .github/ISSUE_TEMPLATE（bug/feature）+ PULL_REQUEST_TEMPLATE
+- [ ] A6 上游残留清理：FUNDING.yml / .travis.yml / 3 个上游 workflow 处置（联动 D14-3）
 
-### Phase 3: 设计 stress-ng 改进方案（分 patch 的单元清单） — complete
-- [x] 融合两轮方案（我的 G1-G9 + 建议的 L0/L1/L2 三层），按 L0 重编 → L1 编排 → L2 源码增强 重排优先级
-- [x] 每个改进点 = 一个 patch 单元（符合仓库 one-patch-per-unit 纪律）
-- [x] 按"检出收益 × 实现成本"排序
-- [x] 标注哪些是纯命令行组合（零代码，立即可用）vs 需要代码
-- [x] 方案过完整性检查：是否覆盖三因素模型（设计冗余不足/老化退化/业务负载）全部杠杆
+### Phase 4: docs 用户文档（B 组）
+- [ ] B1 docs/architecture.md（五层架构 mermaid + 各层职责 + 设计决策记录）
+- [ ] B2 docs/excitation-guide.md（激发覆盖率矩阵：杠杆×通路×数据形状 + 方法论 + 文献引用）
+- [ ] B3 docs/sdcshield-integration.md（协同作战手册：双工具拓扑/剧本/报告对接）
+- [ ] B4 docs/upstream-sync.md（同步策略 + .gitattributes merge=ours 冲突收敛规范）
 
-### Phase 4: 端到端压测命令设计（面向 CP1 目标机） — complete
-- [x] 采用建议的四阶段结构（A 全核背景压 → B CP1/CP0 对照 → C 逐物理核 sweep → D 复现取证），融合我原方案的侦察/基线前置阶段
-- [x] 修正建议命令中的错误（svebf16 拼写、cdouble 误用、--taskset package1 与数字范围二选一）
-- [x] 每阶段命令可复制执行，含 SDCShield 侧配合命令
-- [x] 结果判读方法（多证据交叉：verify fail + bogo ops 离群 + sdcshield cpu-mask + EDAC/dmesg）
-- [x] 安全边界（root 下 OOM 调整、不可杀进程、热失控风险提示）
+### Phase 5: 代码层（C 组，one-patch-per-unit）
+- [ ] C1 sdc-run.sh `excite` 纯激发模式（无 --verify 组合，SDCShield 并行检测）
+- [ ] C2 激发默认值审计（full/excite 组合配比 vs CI-MATRIX bogo 数据，结论进 excitation-guide）
+- [ ] C3 fork 版本标识（--version → 0.22.00-sdc.1，Makefile 单点定义）
 
-### Phase 5: 撰写最终交付文档 — complete
-- [x] 写入 findings.md（差距分析+方案+命令，自包含）
-- [x] 在本机验证改进方案中"零代码命令"确实可用（抽样实测）
-- [x] 汇报用户
+### Phase 6: CI 与发布（D 组）
+- [ ] D1 multi-os-verify badge 接入 README
+- [ ] D2 Release 流水线：tag → Release + ghcr stable 镜像（改造 container-image-stable.yml 或并入 multi-os-verify publish）
+
+### Phase 7: 验证与收尾（E 组）
+- [ ] E1 README/docs 全部命令 parse-verified（当前二进制实测，13 轮纪律延续）
+- [ ] E2 快速上手 3 命令本机实测
+- [ ] E3 push 后 ci-monitor.sh --new-code 确认 15 镜像全绿
+- [ ] E4 badge/交叉链接检查；findings/progress 收尾；方案入库 docs/superpowers/plans/2026-10-08-*.md
 
 ## Errors Encountered
 
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-| (none) | - | - |
+| git fetch upstream 443 超时 | 直连 github.com | 网络层限制；上游数据改走 api.github.com（release/commit 查询可用），方案不受阻 |
+| sed 打码正则 Invalid range end | 查 bashrc | 改 cut -d= -f1 仅列变量名 |
+| search_repositories 查本 repo 返回 0 | MCP | 改用 REST API curl 查询成功（搜索索引限制，不影响读写） |
 
 ## Decisions Made
 
 | # | Decision | Why |
 |---|----------|-----|
-| D1 | stress-ng 定位为"扰动器"而非"第二校验器" | SDCShield 已有 273 个 golden 比对用例；stress-ng 重复做校验收益低。真正缺口是负载形态/环境压力。其 --verify 自校验作为"辅助报警"保留 |
-| D2 | 改进优先级以 OoO/LSU/L2C/MMU 脆弱模块为纲 | kunpeng920_sdc_plan.md 实测覆盖率：MMU 20%、L2C 40%、LSU 54%、OoO 56% 最低；这些是 SDC 检出的最大杠杆 |
-| D3 | 目标机与开发机分开处理 | 目标机 Kunpeng 950（SMT2/382CPU/SVE2）≠ 开发机 920（128CPU/无SMT/无SVE）；命令按目标机写，代码验证按本机做 |
-| D4 | 新 stressor 命名 `sdc-*` 前缀，SDC 配方参考 sdcshield 的 movbe/core-179 思路 | 与 SDCShield 的 ARM64 SDC 专项（arm64_sdc、power_virus_dit、lsu_store_forward_arm、l2c_cross_cache_line_arm、mmu_split_tlb_arm）形成互补分工 |
-| D5 | **采纳外部建议的三层结构（L0 重编 / L1 编排 / L2 源码）并置于我原 G 系列之上** | L0 是零源码改动且直接决定"负载是否真的打到 SVE2 管线"——不改它，所有向量类 stressor 在 950 上只有 NEON 强度。核实确认：Makefile 无 ARM march、TARGET_CLONES 在 ARM 为空、二进制零 SVE 指令 |
-| D6 | **L2 源码增强清单以建议的 6 项为主干，融合我原 G1/G2/G6** | 两者高度重叠（SMT 感知=建议2、verify 位级诊断=建议3、sweep 模式=建议4=我 G8）；G2 跨 socket 乒乓、G6 ls64 作为补充项保留 |
-| D7 | **外部建议的 3 处技术错误已修正后再采用**：svebf16 拼写（gcc 12.3.1 拒绝，改 bf16）、cdouble 误当 stressor（实为 cpu-method）、"objdump 验证"从可选改为 L0 硬性验收门 | 仓库纪律：所有命令必须先在真实编译器/二进制上验证。实测依据见 Phase 1b |
-| D8 | CP1 少一核（node1=95 核 vs node0=96 核）按"疑似 BIOS 已 deconfigure"处理，阶段0 必须先取证（BMC SEL/dmesg）再压测 | 若核已被固件下线，压测打不到它；且这是故障历史的一部分，取证优先于触发 |
+| D14-1 | README **纯英文**（用户选定，非双语） | 国际可见性；单一语言降低维护成本 |
+| D14-2 | **excite + full 双模式**（用户采纳推荐） | excite=纯激发（无 verify，检测 100% 归 SDCShield）；full=保留 verify 哨兵 |
+| D14-3 | **定期 merge 上游（每 release，PR 方式）+ 删除上游 workflow/FUNDING/.travis**（用户采纳推荐） | 上游修复持续可用；B4 规范控制冲突成本；ghcr 发布由 multi-os-verify 承担 |
+| D14-4 | **全部 A-E 本轮执行**（用户采纳推荐） | "彻底改造"语义；每单元独立 commit |
+| D14-5 | 版本呈现 `0.22.00-sdc.1`（上游版本+fork 后缀，Makefile 单点）；项目名 sdc-stressng、二进制名 stress-ng 不改 | 兼容上游 merge 与既有 CI/文档；改名收益低、破坏面大 |
+| D14-6 | Release 打 tag 时机推迟到 E3（CI 15 镜像全绿）之后，A4 阶段只写 CHANGELOG 文件 | tag 应指向最终验证过的状态 |
 
-## Next Step
+## 遗留转入（前 13 轮未闭环，不因本轮改造丢失）
 
-**Phase 10d（CI 监控）进行中**：`scripts/ci-monitor.sh` 已入库（匿名 API），第一枪抓住并修复 schedule SEQ_TIMEOUT=5 兜底 bug（6baae011d：--timeout 5 使套件 ×2.5 撞 90m 窗，连续两天 cron 16/16 红；修复对齐 '2'）。监控点：① 今日 run 35501026920 收尾（旧代码+已知 bug，红属预期）② **明日 12:00 cron = 新代码（P3-P6+修复）首个 15 镜像验证，应全绿** ③ 一周后 ci-trend 稳定性对比。
-
-### Phase 10d: CI 监控 + schedule 超时 bug 修复（2026-09-20） — in_progress
-- [x] ci-monitor.sh 入库（latest/--watch/--new-code 三模式，匿名 API 无需 gh）
-- [x] 监控发现：连续两天 schedule run 16/16 sequential 失败 vs dispatch 同 head 全绿
-- [x] 根因定位：SEQ_TIMEOUT 兜底 '5' vs dispatch '2'；实测 11.1min vs 90.0min 铁证
-- [x] 修复推送（6baae011d）+ YAML 校验
-- [x] 盯今日 run 35501026920 收尾：completed/failure（16/16 sequential 超时，全归因 SEQ_TIMEOUT bug，head 早于修复推送，符合预期）
-- [x] 盯明日 12:00 cron run：**35583732044 全绿**（2026-09-21T09:30Z 创建——GitHub cron 延迟 5.5h 属其常态；head=071500589 含全部新代码；build-test 15/15 success、method sweep 15/15、sequential 15/15——P3-P6 + SEQ_TIMEOUT 修复首验通过，rand-payload 经 method sweep 全枚举在 15 镜像（含 20.03 gcc 7.3）编译并运行通过）
-- [ ] 一周后：ci-trend.sh 对比变异前后 bogo-ops 稳定性（2026-09-27 前后，需 gh 认证环境或参照 ci-monitor 的 API 模式改造）
-
-### Phase 10c: P6 — cache 系列 rand-payload opt-in 方法（2026-09-20） — complete（3 commits 推送 ee0ba8b04..5464927a6）
-- [x] 通读三文件结构 + 纸上定骨架（教训 3 兑现：先骨架后动笔，无一行废弃代码）
-- [x] **cacheline rand-payload**（48f53488a）：每进程独占 8 字节对齐字（idx×8 错峰 → 16 字节块无重叠），低 8 位=所有权 tag、高 56 位=bitgen 载荷，写→barrier→rdrev64 式邻居扫→读回比对+位级诊断；故障注入（位 45）每次往返被抓，P3 yaml verify-failures: 64 同步计数；rand-payload/all/rdwr 回归全过
-- [x] **l1cache rand-payload**（fc94a7a46）：保持 set/way 扫掠几何，bitgen 流填充字的 `_and_verify` 变体（per-set 种子重放，双 handle 惯例）；**开发中抓出 2 个真 bug**：①verify 变体假设 fill 已跑但框架只选一个变体 → verify 全 0 页失配（干净运行门卫抓住）②shim_memcpy 非 Symbol → memcpy；故障注入（位 46）逐字 1-bit-flipped 精确诊断 + yaml 32768 计数
-- [x] **cache 写路径 bitgen 化**（5464927a6）：纯写路径 `j & 0xff` 线性坡 → bitgen 流（每 u64 摊 8 字节，热循环零 per-byte RNG 开销），262 个 flag 组合全经此单函数；A/B 带宽 5.24/5.31 vs 5.21/5.35（噪声内零回归）
-- [x] man 三条目；gcc 7.3 容器本轮不可用（无 runtime）→ C99 语法零警告 + 明日 CI 15 镜像 20.03 自动兜底
-- [x] one-patch-per-unit：cacheline/l1cache/cache 三 commit 分别推送
-
-> Phase 10 主体已完成（5 patch 推送 c7e7ebf55..ee0ba8b04）。待用户/时间：CP1 真机 A/B（P2 已就绪）；CI 趋势一周后。
-
-### Phase 10: README/CLAUDE.md arm64 重定位 + 复盘改进方案（2026-09-20 第十三轮） — in_progress
-- [x] README.md 重写：定位转向 arm64 服务器芯片 SDC 压测（fork 能力置顶：bitgen/operand-var/addrspace/armcrypto/sve2/ls64/sdc-run/CI；上游通用内容保留在后半部）
-- [x] 新建 CLAUDE.md：仓库开发指南（分工模型/目标机事实/构建/能力地图/验证纪律/代码纪律 10 条（12 轮踩坑沉淀）/SDC 方法论）
-- [x] 研究（subagent ×2 并行，findings.md §11）：遗留 1/2/4/5 的代码现状全部核实（bitgen 参数硬编码、cache 三件套字节粒度 0 自由位、A/B 分界 commit 可构建、CI 缺时序工具）
-- [x] 改进方案 → docs/superpowers/plans/2026-09-20-sdc-field-validation-and-calibration.md
-  - P1 sdc-run 失配统计报告 / P2 abtest 模式（复盘遗留4 闭环主线）/ P3 yaml verify-failures 字段
-  - P4 bandwalk 校准链 / P5 ci-trend.sh / P6 cache tag 重设计（仅立项）/ P7 pagemap 脚本
-  - 实施顺序 P3→P1→P2→P5→P4；决策点 3 个（A 版基线选 fc243c784、P6 不本轮实施、真机窗口）
-- [x] 方案呈报用户批准（2026-09-20 用户指令"撰写完整方案并执行"——决策点采纳建议：A 基线=fc243c784、P6 本轮不实施、真机窗口 P1-P3 落地后安排）
-
-### Phase 10b: 方案执行（P3→P1→P2→P5→P4） — complete（2026-09-20，4 commits 已推送 c7e7ebf55..2751f8e01）
-- [x] **P3** -Y yaml `verify-failures: N` 字段（d48246ebc）：stats 计数 + pr_fail 经 stress_verify_failures_ptr 原子递增（sigalarmed 同款指针模式）+ yaml 仅 N>0 输出。故障注入 yaml=6 与 log 6 精确一致；4 stressor 干净路径零变化
-- [x] **P1** sdc-report.sh + sdc-run full 集成（b629c8d23）：per-stressor 失配计数（yaml 优先/log fallback）/首失配位置/preheat 标记/sdcshield 失配率+cpu-mask → report.txt 可 diff；full 模式改 --metrics；本机 15s E2E + 合成数据测试全过
-- [x] **P2** abtest 模式（58af7b130）：NG_A/NG_B 双臂 + 冷却（COOLDOWN）+ ab_summary.txt 三分支判读；本机端到端验证 A=fc243c784 worktree 构建 vs B=当前（45s×2+30s 冷却，双臂负载确认，健康机 A=B=0 符合预期）
-- [x] **P5** ci-trend.sh（58af7b130）：gh api 拉 CI-MATRIX 时序 + per-stressor×image CoV；聚合逻辑离线单测通过（修了跨镜像混合 bug）；gh 采集段在 CI 主机运行（本机无 gh）
-- [x] **P4** bitgen 校准链（2751f8e01）：--bitgen-band-width min*100+max / --bitgen-band-density 掩码（默认=文献值，MWC 流不变）+ man + sdc-flip-collect.sh（xor 掩码 64 位直方图+top-8 band 建议）+ bitgen-distribution.sh 第 7 项 CALIBRATION 检查；8/8 统计验证 PASS，全部消费者回归绿
-- [x] CI 15 镜像自动覆盖（multi-os-verify 每日 cron 会跑新代码）
-- [x] git pull 上游（PR #5 无冲突合并，8 个上游修复，本机编译 0 error）
-- [x] 研究一+二：两份全量盘点完成（subagent 并行，docs/superpowers/research/2026-09-19-{operand-randomness,address-space}-survey.md）
-  - 操作数：30 路径分类 A13/B5/C12/D1；最重灾 memrate（11 处硬编码 0xaa）、armcrypto/cpu-int 锁死种子、atomic 字面操作数集、FP 算术缩放合成
-  - 地址：8 个"从未练习的形状"（多GB随机地址+校验、上位VA位持续流量、混合页序、malloc大内存等）；gold standard=mmaprandom（但默认仅8页且无校验）
-- [x] 研究三：文献杠杆确认（R2 D2/D3/D4/D5/E1）——均匀随机对边界/位段覆盖差，需模式字典×随机混合
-- [x] 研究四+五：方案完成 → docs/superpowers/plans/2026-09-19-operand-address-mutation.md
-  - P1 core-mwc-bitgen 位段定向生成器（地基）
-  - P2 stress-operand-var（操作数变异+VERIFY_ALWAYS）
-  - P3 stress-addrspace（地址形状 7 配方+校验，含 malloc 大内存）
-  - P4-P8 现有 stressor 加固（memrate/armcrypto种子/fp直合成/vm随机偏移/atomic）
-  - P9 文档+编排+CI 自动覆盖
-- [x] **全部 9 patch 实施完成并推送**（fc243c784..04467d611，7 个实现 commit）：
-  - P1 core-bitgen（90c654388）：bandwalk/edge-dict/fp-bit-synthesis/complement/hamming/skip；统计验证 6 项全 PASS（边界命中 100% vs 均匀~0、64 位全覆盖、FP 指数 1/8:1/8:3/4）
-  - P5 种子解锁（39bc27ab1）：cpu int*/rand/int-fp + armcrypto crypto_in 改活流 + golden 种子重放；71 方法 verify 全过，跨运行操作数确实变化
-  - P2 operand-var（72e629f77）：5 方法+all，112.8 万 bogo/2s，故障注入被抓；修了 0 基方法表分派 bug（NULL 调用 SIGSEGV）
-  - P3 addrspace（8efa610ce）：7 配方+all；三个 verify 失步 bug（重复页/重叠 slice/碰撞窗口）全修复；故障注入页级定位
-  - P4 memrate（bbbf6f137）：--memrate-write-pattern 4 模式；带宽无回归（10-11 GB/s 各模式）
-  - P6 fma/vecfp（1e872cdaf）：50% 位型直合成操作数（指数/尾数独立）
-  - P7 vm rand-offset（1fb4004b2）：无放回 Fisher-Yates 密集随机偏移 + bitgen 模式 + 同序校验
-  - P8 atomic（04467d611）：RMW 操作数随机抖动（var 路径）；unshared verify 路径保字面量（恒等式 oracle）
-  - P9 文档编排（04467d611）：man 全条目；sdc-run full 加 --operand-var/--addrspace
-- [x] 回归：9 个触碰 stressor 本机 verify 全过；gcc 7.3（20.03 容器）编译+运行全绿
-- [ ] CI 15 镜像全量验证（run 35449398396 进行中，新 stressor 自动进套件）
-
-> 约束：与第七轮 12 patch（SVE2/饱和压测）正交——本轮聚焦"数据变异"而非"单元饱和"；与 SDCShield 分工不变（stress-ng=扰动器，但变异质量决定激发效率）。
-
-第七轮（2026-09-17）**全部 12 patch 实施完成**：11 commits 已推 port/arm64-saturation-sdc 分支（d9381762c..df6f448b3）。本机全功能验证 + QEMU 用户态仿真（-cpu max）SVE/SVE2/SM3/SM4/SHA3/RNDR 模拟验证全通过。SVE 动态开关（HWCAP 运行时 + target 属性编译隔离）贯穿全部新代码。
-
-**真机验证方案已产出**：`docs/superpowers/plans/2026-09-17-kunpeng950-real-machine-verification.md`（commit f87464509）——V1-V10 十项验证目标（逐项标注"为什么只能真机"+ 验收判据）、阶段 0 取证、双构建 A/B 策略、SDC 协同漏斗、结果模板、停机取证条件、风险回退。方案中全部 13 条命令/旗标已在本机二进制上逐条 parse-verified。下一步：CP1 真机执行并回填结果。
-
-### Phase 7: 对标 x86、强化 ARM64 饱和压测研究（2026-09-16 第六轮） — complete
-- [x] R1 x86 专属能力基线盘点（smi/rdrand/x86cpuid/tsc/ipsec-mb 完整 stressor + target_clones/regs/vnni/cache 方法级 + rapl/ignite-cpu 框架级；报告 docs/superpowers/research/2026-09-16-r1-x86-baseline-inventory.md）
-- [x] R2 前沿 SDC 研究（Google/Meta/阿里/ITHICA 论文实证：全核并发、热浸润、di/dt 阶跃、长序列、随机数据、SMT 同压、周期重复；报告 …r2-sdc-frontier-research.md）
-- [x] R3 ARM64 微架构压测文献（逐单元饱和模式表、FIRESTARTER 参照、SMT2 无公开资料负面结论、Kunpeng 950 零公开信息；报告 …r3-arm64-saturation-research.md）
-- [x] R4 饱和缺口分析（subagent 死于 API 错误；范围由 R1+R3+主会话定向核实覆盖：DC ZVA/CVAC/lrcpc/DIT/RNDR 全树零命中、stress-cacheline 已有跨核共享、port 分支已合 main）
-- [x] 主会话交叉核实（port 分支合入 main、开发机特性 aes/sha1/sha2/dotprod/fp16、target("+crypto") 可用、GCC12 无 SVE2 crypto intrinsic→.inst 路线、binutils SVE2 助记符问题、HWCAP2 位齐全、hisi PMU 存在但非 root 不可用）
-- [x] 综合撰写实现方案（docs/superpowers/plans/2026-09-16-arm64-saturation-sdc.md，12 patch + backlog + 风险清单）
-
-### Phase 6: 移植实施（L2 源码落地） — complete
-- [x] 特性分支 port/kunpeng950-sdc-stress 建立
-- [x] Patch 1 config: SVE2 march 探测注入 CONFIG_CFLAGS（0fd4437b5）
-- [x] Patch 2 --taskset physical SMT 感知（a23c294d5）
-- [x] Patch 3 scripts/sdc-scan.sh 逐核 sweep（7a0fc24f1）
-- [x] Patch 4 fma verify 位级诊断（fb9fd9cb6）
-- [x] Patch 5 vecfp/matrix 位级诊断（6af367f39）
-- [x] Patch 6 stress-sve2.c（774d5b81d，编译级验证+诚实跳过）
-- [x] Patch 7 stress-ls64.c（ae954f194，同上）
-- [x] Patch 8 cpu-method crc32（39408bda9，全功能验证）
-- [x] Patch 9 文档同步（18ab99fd4）
-
-全部 9 patch 已推 port/kunpeng950-sdc-stress 分支。执行详情与验证证据见 docs/superpowers/plans/2026-09-14-kunpeng950-sdc-port.md。
-
-### Phase 7: 对标 x86、强化 ARM64 饱和压测研究（2026-09-16 第六轮） — in_progress
-- [ ] R1 x86 专属能力基线盘点（smi/rdrand/rdtsc/io/affinity 等 x86-guarded 代码全集 + 对应 ARM64 等价物缺口）
-- [ ] R2 前沿 SDC/压力激发研究（SILENT/SICE/Google fARM/文献：什么负载形态最能激发静默数据损坏）
-- [ ] R3 ARM64 微架构压测文献（SPE/Ptrauth/MTE/SVE2/LSU/一致性协议压力、Ampere/Graviton/Kunpeng 白皮书）
-- [ ] R4 "打满"缺口分析：哪些 ARM64 单元（NEON/SVE2×2、LSU、L1/L2/L3/TLB、互联/NoC、ccNUMA 一致性）现有 stressor 压不饱和
-- [ ] 综合撰写实现方案（结合已落地的 11 patch，避免重复；输出可执行 patch 清单）
-
-> 注：Phase 6 已落地的能力（SVE2 march/`--taskset physical`/sdc-scan/sdc-run/fma-vecfp-matrix 位级诊断/sve2/ls64/crc32）是本轮研究的基线，方案不得重复造轮子。
+- ci-trend.sh 一周稳定性对比（需 gh 认证环境或 workflow_run 回传方案）
+- CP1 真机 A/B 长跑窗口（P2 abtest 已就绪，等真机时间）
+- bandwalk 窗口真机校准（sdc-flip-collect.sh 待真机失配数据）
+- （本轮开始时被打断的）上游 0.22.01+ 合并任务 → 并入 D14-3 决策统一处理

@@ -1,5 +1,31 @@
 # Progress Log
 
+## Session 2026-10-08（第十四轮）: 顶级开源项目化改造 — 调研与方案设计
+
+用户需求：本项目是 stress-ng fork，定位 arm64 SDC **激发**（相对 ../sdcshield 的检测角色），
+把所有计算消耗在最大程度激发 CPU SDC 上；要求彻底改造为顶级完备 GitHub 项目
+（GitHub 信息/项目信息/架构设计/方案实现/验证）。
+
+### 调研发现（关键）
+- **repo 元数据还是上游原文**（description="This is the stress-ng upstream project..."、
+  homepage→上游、topics 空）——GitHub 门面改造第一目标
+- **上游残留需清理**：FUNDING.yml=上游作者收款账号；.travis.yml 废弃；ci-builds/
+  container-image-{edge,stable}.yml 上游 workflow（stable 会在发 Release 时自动触发！）
+- fork 规模：110 commits / 100 files / +11315；上游基线 0.22.00 vs 最新 V0.22.01（高频活跃）
+- 治理文件/模板/CHANGELOG/Release/用户文档全缺失（差距表 G-1..G-10，findings §12.1）
+- 网络通路：api.github.com+PAT 可用（curl 200）；github.com:443 git 协议超时；gh CLI 未装；
+  MCP GitHub=用户本人
+
+### 方案设计（详见 findings §12）
+- 五层激发引擎架构（L1 硬件感知→L2 数据形状→L3 通路→L4 杠杆→L5 编排）收编 13 轮能力
+- "所有计算给激发"落地 = sdc-run `excite` 纯激发模式（无 verify，检测全交 SDCShield）
+- patch 清单 A-E 组（门面→文档→代码→CI→验证），执行顺序 A6→A1→A2/A3/A5→A4→B→C→D→E
+- 5 决策点 AskUserQuestion 呈报（README 语言/纯激发模式/上游同步/范围/版本默认）
+
+### 状态
+- Phase 1-2 complete（调研+方案设计，task_plan.md 已重写为第十四轮计划）
+- Phase 3-7（A-E 组执行）待用户决策后进行
+
 ## Session 2026-09-20（第十三轮·续2）: CI 监控启动 + 抓住并修复 schedule 超时 bug
 
 用户指令"你把这些监控起来"。**监控第一枪即抓住真 bug**：

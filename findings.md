@@ -1,4 +1,122 @@
-# Findings: stress-ng × SDCShield 协同 SDC 压测（v4，2026-09-20 第十三轮更新）
+# Findings: stress-ng × SDCShield 协同 SDC 压测（v5，2026-10-08 第十四轮更新）
+
+## 12. 第十四轮：顶级开源项目化改造调研（2026-10-08）
+
+### 12.1 现状盘点与顶级项目标准差距
+
+**代码资产**（全部已在 CI 15 镜像验证）：bitgen 位形状生成器（bandwalk/edge 字典/FP 位型直合成/互补对/汉明定向）；
+operand-var（5 方法）/addrspace（7 配方）变异 stressor；armcrypto 13 方法（NEON 9+SVE2 4）；sve2 5 方法；
+fma SVE2 内核运行时分发；ls64/rdrand/tsc/regs；缓存维护指令（CIVAC/CVAC/ZVA）；taskset physical；
+rapl hwmon；memrate 4 写模式；vm rand-offset；sdc-run 编排（full/scan/path/pair/abtest + preheat +
+keep-bg + sdcshield hook）；sdc-report/sdc-flip-collect/ci-trend；multi-os-verify CI（15 镜像 +
+CI-MATRIX 矩阵 + ghcr 发布）。
+
+**工程差距表**（对照顶级开源项目标准）：
+
+| # | 顶级标准 | 现状 | 处置 |
+|---|---|---|---|
+| G-1 | repo 元数据自述定位 | description/homepage=上游原文，topics 空，wiki 开启 | A1 重写 |
+| G-2 | README：一句话定位+badge+快速上手+架构+文档导航 | 中文 fork 段+上游原文拼接，无 badge/架构图 | A2 重写 |
+| G-3 | SECURITY.md | 无（故意压边界的工具尤其需要） | A3 |
+| G-4 | CONTRIBUTING.md | 无（13 轮纪律只活在 CLAUDE.md） | A3 |
+| G-5 | CHANGELOG + Release | 从未发布；版本无 fork 标识 | A4/C3 |
+| G-6 | issue/PR 模板 | 无 | A5 |
+| G-7 | 无上游作者信息残留 | FUNDING.yml=上游收款账号；.travis.yml；3 个上游 workflow | A6 |
+| G-8 | 用户向文档（架构/方法论/集成指南） | 仅内部研发记录 superpowers/ | B1-B4 |
+| G-9 | CI 状态可见（badge） | 有 CI 无 badge | D1 |
+| G-10 | 独立项目叙事与架构 | "fork+补丁集" | 本轮核心 |
+
+### 12.2 上游残留 workflow 处置分析（A6 依据）
+
+| 文件 | 触发 | fork 下的行为 | 建议 |
+|---|---|---|---|
+| container-image-edge.yml | push:master + 每日 cron | fork 默认分支是 main（push 不触发）；fork 的 schedule 默认禁用 | 删除（死代码；ghcr 发布已由 multi-os-verify publish 覆盖） |
+| container-image-stable.yml | release published | **一旦 A4 发 Release 会自动触发**，以上游命名推 ghcr | 改造为 fork 的 release 镜像流（D2）或先删除 |
+| ci-builds.yml | workflow_dispatch 手动 | 手动跑上游多平台（ubuntu/freebsd/macos/cygwin）构建 | 删除（与 arm64 SDC 定位无关） |
+| .travis.yml | - | Travis 早已废弃 | 删除 |
+| FUNDING.yml | - | 仓库页面展示**上游作者**收款链接 | 删除（fork 不得保留上游收款信息） |
+
+### 12.3 架构设计：五层激发引擎
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ L5 编排层   sdc-run.sh: full / scan / path / pair / abtest /    │
+│             excite · 拓扑自推导 · preheat · keep-bg · 报告       │
+├────────────────────────────────────────────────────────────────┤
+│ L4 杠杆层   di/dt(varyload 6 波形) · 热浸润(preheat) ·           │
+│             SMT 争用(pair) · 全核并发 · 长 soak · 顺序效应        │
+├────────────────────────────────────────────────────────────────┤
+│ L3 通路层   ALU/branch · 向量(SVE2/NEON) · crypto(AES/SHA/SM3/  │
+│             SM4) · atomics(LSE) · LSU(ls64/misalign) ·          │
+│             缓存层级 · MMU/TLB(addrspace) · 互联(NUMA)           │
+├────────────────────────────────────────────────────────────────┤
+│ L2 数据形状层  bitgen: bandwalk 位段扫掠 · 57 边界值字典 ·        │
+│             FP 位型直合成 · 互补对 · 汉明定向 · 模式混合          │
+├────────────────────────────────────────────────────────────────┤
+│ L1 硬件感知层  HWCAP/HWCAP2/3 探测 · 拓扑推导 · SVE2 march 注入  │
+│             · 诚实跳过 · 单 binary 跨 920/950                    │
+└────────────────────────────────────────────────────────────────┘
+```
+
+设计原则：
+1. **激发优先**：编排默认把计算资源全部投向激发；检测角色 100% 归 SDCShield（excite 模式），
+   --verify 只作搭车哨兵（full 模式可选）。
+2. **确定性 oracle 纪律**：随机化只进压力路径，verify oracle 保持恒等式/字面量（12 轮纪律不变）。
+3. **诚实跳过**：无硬件 skipped with reason，绝不假跑。
+4. **冲突面收敛**：fork 定制优先新文件；共享文件改动收敛到标记区段；
+   README 采用"fork 主文档 + 上游原文分离"策略（.gitattributes merge=ours，见 B4）。
+
+### 12.4 改造 patch 清单（A-E 组）
+
+**A GitHub 门面**：
+- A1 元数据：description="SDC excitation engine for arm64 servers — a stress-ng fork that
+  maximizes silent-data-corruption excitation …" / topics: arm64,aarch64,stress-testing,
+  silicon-validation,hardware-reliability,silent-data-corruption,sve2,kunpeng,ras,cpu-diagnostics /
+  homepage 置空 / 关 wiki（curl PATCH + PAT）。
+- A2 README 重写（语言按 D14-1）：badge 区 / Why-SDC 问题陈述 / 五层架构图 / 快速上手 3 命令 /
+  能力矩阵 / SDCShield 协作拓扑 / 上游关系与致谢 / 安全警示。
+- A3 SECURITY.md（"故意压边界，只在专属压测机运行"政策+免责+报告渠道）、
+  CONTRIBUTING.md（one-patch-per-unit + 验证 6 步 + 代码纪律文档化）、SUPPORT.md。
+- A4 CHANGELOG.md（13 轮演进整理，progress.md 为素材源）+ 首个 Release v0.22.00-sdc.1
+  （notes：定位/能力/快速上手/已知限制）。
+- A5 .github/ISSUE_TEMPLATE/{bug_report,feature_request}.md + PULL_REQUEST_TEMPLATE.md。
+- A6 残留清理（§12.2 全表执行）。
+
+**B docs 用户文档**：
+- B1 architecture.md：上图 + 各层职责表 + 设计决策记录（为何五层、verify 角色定位、诚实跳过）。
+- B2 excitation-guide.md：**激发覆盖率矩阵**（行=杠杆[di/dt/热/SMT/全核/缓存/TLB/互联/数据形状/soak]，
+  列=通路[ALU/向量/crypto/atomics/LSU/缓存/MMU/互联]，cell=stressor/方法/编排模式）——
+  同时是"还缺什么激发"的路线图；附方法论与文献引用。
+- B3 sdcshield-integration.md：双工具拓扑图 + 协同剧本（阶段 0-5）+ 报告字段对接（cpu-mask 等）。
+- B4 upstream-sync.md：同步节奏（每上游 release，PR 方式，先例 PR #5）+ .gitattributes
+  merge=ours 清单（README.md 等 fork 完全重写文件）+ 共享文件区段标记规范 + merge 后 6 步验证。
+
+**C 代码（one-patch-per-unit）**：
+- C1 `sdc-run.sh excite` 模式：无 --verify 组合（cpu-method all 轮换 + fma/sve2/armcrypto 向量通路 +
+  operand-var/addrspace/memrate-bandwalk/vm-rand-offset 形状通路 + varyload di/dt + preheat 热浸润），
+  worker 数拓扑自推导，支持 --sdcshield 并行检测；VERIFY_ALWAYS 类 stressor（operand-var）保留——
+  其 verify 成本占比低且数据形状本身即激发。
+- C2 激发默认值审计：对照 CI-MATRIX bogo-ops/s 分布复核各模式 stressor 配比，结论写进 excitation-guide。
+- C3 版本标识：Makefile VERSION=0.22.00-sdc.1 单点定义，--version 呈现（上游 merge 时单行冲突易解）。
+
+**D CI/发布**：D1 badge（multi-os-verify workflow badge + release badge + ghcr badge）；
+D2 Release 流水线（stable 镜像流：改造 container-image-stable.yml 为 fork 命名
+sdc-stressng:stable，或并入 multi-os-verify publish job 加 release 触发——二选一，实施时定）。
+
+**E 验证**：E1 文档命令 parse-verified 全量；E2 快速上手实测；E3 ci-monitor.sh --new-code 15 镜像全绿；
+E4 链接/badge 检查。
+
+**执行顺序**：A6（先拆危险/违规残留）→ A1 → A2/A3/A5 → A4 → B1→B4 → C1→C3 → D1/D2 → E。
+
+### 12.5 决策点（呈报用户）
+
+| # | 问题 | 选项 | 推荐 |
+|---|---|---|---|
+| D14-1 | README 语言 | 英文主+README.zh-CN.md / 纯中文 / 纯英文 | **英文主+中文版**（国际惯例+团队中文文档成本可控） |
+| D14-2 | 纯激发模式 | excite+full 双模式 / 所有模式去 verify / 维持现状 | **双模式**（"核心=激发"落地为 excite；full 保留哨兵） |
+| D14-3 | 上游同步+workflow | 定期 merge+删上游 workflow / 冻结+cherry-pick / 彻底独立 | **定期 merge+删**（上游修复有价值；B4 规范控制冲突成本） |
+| D14-4 | 本轮范围 | 全部 A-E / 先 A+B 门面文档，C-E 下轮 | **全部**（"彻底改造"语义；C/D 组风险可控） |
+| D14-5 | 版本呈现 | 0.22.00-sdc.1；项目名/二进制名不变 | 已定默认（可推翻） |
 
 ## 11. 第十三轮：复盘驱动改进方案研究（2026-09-20）
 
