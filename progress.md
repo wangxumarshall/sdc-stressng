@@ -46,7 +46,11 @@
 - E1 选项核查：34 项全过（5 项 --help grep 假阴性经实跑排除——教训：选项核查以实跑为准）
 - E2 快速上手：operand-var/addrspace --verify 零失配；excite 10s 成功
 - E4 链接：全部相对链接目标存在（docs×4/治理×4/CLAUDE.md/stress-ng.1）
-- E3 **进行中**：multi-os-verify 已 dispatch（204，head=7ea0daedd），预计 1-2h；绿→打 tag+Release→release-image E2E
+- E3 **完成**：multi-os-verify run 37723638200（head=7ea0daedd，03:37Z dispatch）**completed+success 15/15 全绿**；
+  tag v0.22.00-sdc.1 已推；GitHub Release 406447318 已发布（201，notes 摘自 CHANGELOG）；
+  release-image run 37732286596 由 release 事件自动触发（E2E 进行中，QEMU arm64 构建 ghcr :stable，cron 收尾确认）
+- **事实修正**：edge workflow 历史 run（37576341125/37420821028 failure）证明 fork 的 schedule 并非默认禁用——
+  上游每日 cron 一直在跑且失败；A6 删除决策因此更正确（findings §12.2 已修正）
 
 ## Session 2026-09-20（第十三轮·续2）: CI 监控启动 + 抓住并修复 schedule 超时 bug
 

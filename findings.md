@@ -30,7 +30,7 @@ CI-MATRIX 矩阵 + ghcr 发布）。
 
 | 文件 | 触发 | fork 下的行为 | 建议 |
 |---|---|---|---|
-| container-image-edge.yml | push:master + 每日 cron | fork 默认分支是 main（push 不触发）；fork 的 schedule 默认禁用 | 删除（死代码；ghcr 发布已由 multi-os-verify publish 覆盖） |
+| container-image-edge.yml | push:master + 每日 cron | push 不触发（默认分支 main）；**schedule 实际每天在跑且失败**（run 37576341125、37420821028 均 failure——E3 收尾时证伪了此前"fork schedule 默认禁用"的假设） | 删除（正确决策，2026-10-08 起停止） |
 | container-image-stable.yml | release published | **一旦 A4 发 Release 会自动触发**，以上游命名推 ghcr | 改造为 fork 的 release 镜像流（D2）或先删除 |
 | ci-builds.yml | workflow_dispatch 手动 | 手动跑上游多平台（ubuntu/freebsd/macos/cygwin）构建 | 删除（与 arm64 SDC 定位无关） |
 | .travis.yml | - | Travis 早已废弃 | 删除 |

@@ -73,7 +73,7 @@
 ### Phase 7: 验证与收尾（E 组）
 - [x] E1 README/docs 全部 34 个选项/命令实跑核查：30 项 --help grep 直接过；5 项（sve2/ls64/memrate-write-pattern/bitgen×2）grep 假阴性、实跑全通过（sve2/ls64 本机诚实跳过 + successful run）——以实跑为准
 - [x] E2 快速上手实测：operand-var 4 --verify 10s（failed:0 skipped:0）；addrspace 2 --verify（failed:0）；excite 10s（rc=0，A_excite.{log,yaml}+topology.txt 产物齐）
-- [ ] E3 CI 15 镜像全绿确认：**multi-os-verify 已 dispatch（204，head=7ea0daedd）**，预计 1-2h——完成后打 tag v0.22.00-sdc.1 + GitHub Release（触发 release-image E2E）
+- [x] E3 CI 15 镜像全绿确认：**multi-os-verify run 37723638200（head=7ea0daedd）completed+success**（03:37Z dispatch）；tag v0.22.00-sdc.1 已推、GitHub Release 406447318 已发布（201）；release-image run 37732286596 由 release 事件触发（in_progress，ghcr :stable 构建中——结论由后续 cron 检查收尾）
 - [x] E4 链接检查：docs/{architecture,excitation-guide,sdcshield-integration,upstream-sync}.md、SECURITY/CONTRIBUTING/SUPPORT/CHANGELOG/COPYING/CLAUDE.md、stress-ng.1、docs/superpowers/ 全部存在；badge URL 格式正确
 - [x] findings/progress 收尾 + 方案入库 docs/superpowers/plans/2026-10-08-project-overhaul.md
 
@@ -100,10 +100,8 @@
 
 ## Next Step
 
-**E3 收尾**：multi-os-verify run（head=7ea0daedd）预计 1-2h 完成。全绿后：
-1. `git tag v0.22.00-sdc.1 && git push origin v0.22.00-sdc.1`
-2. curl POST 创建 GitHub Release（notes 取 CHANGELOG [0.22.00-sdc.1] 节）→ 触发 release-image.yml E2E（ghcr :stable 镜像）
-3. 若红：按 ci-monitor.sh --new-code 定位失败镜像/步骤修复后重推
+**第十四轮主体已全部闭环**（A-E 全组 + Release 已发布）。仅剩一项自动收尾：
+release-image run 37732286596（ghcr :stable 构建）结论确认——cron 已设。
 
 ## 遗留转入（前 13 轮未闭环，不因本轮改造丢失）
 
