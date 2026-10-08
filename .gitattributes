@@ -1,0 +1,3 @@
+# Fork-owned files that upstream also edits: keep ours on merges.
+# Requires: git config merge.ours.driver true  (see docs/upstream-sync.md)
+README.md merge=ours
