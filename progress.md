@@ -51,6 +51,8 @@
   release-image run 37732286596 由 release 事件自动触发（E2E 进行中，QEMU arm64 构建 ghcr :stable，cron 收尾确认）
 - **事实修正**：edge workflow 历史 run（37576341125/37420821028 failure）证明 fork 的 schedule 并非默认禁用——
   上游每日 cron 一直在跑且失败；A6 删除决策因此更正确（findings §12.2 已修正）
+- **终局（14:07 cron）**：release-image run 37732286596 **completed+success**；ghcr :stable 与
+  :v0.22.00-sdc.1 manifest 双 200 确认 live —— **第十四轮全链闭环，Release 流水线 E2E 验证通过**
 
 ## Session 2026-09-20（第十三轮·续2）: CI 监控启动 + 抓住并修复 schedule 超时 bug
 

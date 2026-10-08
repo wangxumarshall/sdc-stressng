@@ -100,8 +100,10 @@
 
 ## Next Step
 
-**第十四轮主体已全部闭环**（A-E 全组 + Release 已发布）。仅剩一项自动收尾：
-release-image run 37732286596（ghcr :stable 构建）结论确认——cron 已设。
+**第十四轮全链闭环（round-14 fully closed）**：A-E 全组完成，CI 15/15 绿，
+Release v0.22.00-sdc.1 已发布，ghcr :stable 与 :v0.22.00-sdc.1 镜像 manifest
+均 200 确认 live（release-image run 37732286596 completed+success）。
+无未决项。后续轮次：遗留转入清单 + excitation-guide 的 gap 路线图。
 
 ## 遗留转入（前 13 轮未闭环，不因本轮改造丢失）
 
