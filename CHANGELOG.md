@@ -4,6 +4,21 @@ Notable changes to the **sdc-stressng** fork. Upstream changes arrive via
 periodic release merges (see [docs/upstream-sync.md](docs/upstream-sync.md));
 upstream-only items are not itemized here — consult the upstream git history.
 
+## [0.22.01-sdc.1] — 2026-10-08
+
+Upstream sync #1 under the per-release policy
+([docs/upstream-sync.md](docs/upstream-sync.md)): merged upstream V0.22.01
+(4 commits — core-cpu-cache debug-message cleanup, version bump, debian
+changelog, and an upstream README note announcing the project's migration
+to the stress-ng/stress-ng organization). Conflict surface exactly as
+designed: the Makefile `VERSION` line only, resolved to `0.22.01-sdc.1`;
+our README was auto-preserved by the `merge=ours` driver — first live
+validation of the conflict-containment setup. Post-merge verification:
+full rebuild clean, bitgen-consumer regression
+(operand-var / addrspace / vm-rand-offset / memrate-bandwalk) all green,
+and a fault-injection drill on the fma verify path (injected bit 45 caught
+with full bit-level diagnostics).
+
 ## [0.22.00-sdc.1] — 2026-10-08
 
 First tagged fork release. Baseline: upstream stress-ng **0.22.00**
