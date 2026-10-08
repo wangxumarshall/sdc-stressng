@@ -67,6 +67,20 @@ Rows = levers, columns = hardware pathways. `●` covered, `◐` partial,
 | OoO scheduler pressure with shaped dependencies | reorder-buffer corner cases under operand variation | dependency-chain stressor with bitgen branch/operand shapes |
 | Real-machine bitgen calibration loop | window/density parameters were tuned statistically, not against real flip distributions | run `sdc-flip-collect.sh` on a machine with observed SDC, feed back `--bitgen-band-*` |
 
+## Mode recipe audit
+
+Why each orchestration mode runs what it runs (recorded so future changes
+are deliberate, not accidental):
+
+| Mode | Recipe | Rationale |
+|---|---|---|
+| `excite` | cpu-method all + fma + armcrypto + operand-var + addrspace + memrate-bandwalk + vm-rand-offset + varyload | widest pathway coverage at zero verify cost — crypto and memory-shape stressors are affordable only where no verify budget competes |
+| `full` | cpu-method all + fma + operand-var + addrspace + varyload, verify sentinels on | the trigger + verify window; adding armcrypto/memrate/vm would spend the verify budget on extra pathways — that trade is exactly what `excite` exists for |
+| preheat | all-core fma + vecfp, no verify | vector-heavy heat generation is the strongest empirically observed pre-failure condition |
+| `scan` | per-sibling-pair sweep + `--keep-bg` cpu matrixprod | localisation needs per-core metric cleanliness; keep-bg preserves the machine-wide concurrency trigger |
+| `path` | sve2 + ls64 + crc32 (feature-gated) | datapath golden cross-checks — a mismatch attributes SDC to a pathway |
+| `pair` | 4 SMT combinations (fma×fma, fma×cpu, armcrypto×fma, cacheline×cacheline) | maps the sharing topology across vector / integer / crypto / cache resource classes |
+
 ## How to compose a campaign
 
 1. **Start hot**: `--preheat 10` before any verify window.
