@@ -1,0 +1,93 @@
+# Changelog
+
+Notable changes to the **sdc-stressng** fork. Upstream changes arrive via
+periodic release merges (see [docs/upstream-sync.md](docs/upstream-sync.md));
+upstream-only items are not itemized here — consult the upstream git history.
+
+## [0.22.00-sdc.1] — 2026-10-08
+
+First tagged fork release. Baseline: upstream stress-ng **0.22.00**
+(2026-08-19) plus one batch of upstream fixes via PR #5. Everything below was
+developed across 13 engineering rounds (records in `docs/superpowers/`) and
+validated on 15 openEuler CI images.
+
+### Project identity
+
+- Repositioned as the **SDC excitation engine** for arm64 servers — the
+  complement of SDCShield (the detector). Excitation-first philosophy: every
+  cycle goes to raising the probability of exciting silent data corruption.
+- English front-page README (badges, five-layer architecture, quick start);
+  SECURITY / CONTRIBUTING / SUPPORT policies; structured issue forms and a PR
+  template carrying the verification checklist.
+- Upstream leftovers removed: FUNDING.yml (upstream author's donation
+  accounts), Travis config, 3 upstream CI workflows.
+- Repo metadata rewritten (description, 12 topics, wiki disabled).
+- Documentation library added: architecture, excitation guide
+  (levers × pathways × data-shapes coverage matrix), SDCShield integration
+  playbook, upstream sync policy.
+
+### Data shaping (layer L2)
+
+- `core-bitgen`: SDC-directed bit-pattern generator — bit-band sweeps
+  (6–20-bit windows × 5 densities), 57-entry edge-value dictionary with
+  jitter, FP bit synthesis (exponent/mantissa independently), complement
+  pairs, hamming-directed flips, pattern mixing via `stress_bitgen_u64()`.
+  Statistically validated: 100% boundary hits vs ~0 for uniform random
+  (>10⁶ improvement); reproducible via `scripts/bitgen-distribution.sh`.
+- `--operand-var`: 5 methods running real compute paths (ALU / multiplier /
+  divider / FMA) with golden-replay comparison.
+- `--addrspace`: 7 address-shape recipes (multi-GB random fixed spans,
+  per-VA-bit walks, dense random offsets, guard holes, malloc-giant,
+  misaligned-huge, mixed page orders), all verified.
+- `--memrate-write-pattern {0xaa,random,bandwalk,complement}` replacing 11
+  hardcoded constants in the memrate write path.
+- `--vm-method rand-offset`: Fisher-Yates non-replacement dense random
+  offsets with bitgen payloads and same-order replay verification.
+- Seed-unlocked operand streams for cpu/armcrypto; FP bit synthesis in
+  fma/vecfp; atomic RMW operand jitter (verify oracles stay deterministic).
+- Tunable bitgen windows (`--bitgen-band-width`, `--bitgen-band-density`)
+  with a calibration chain (`scripts/sdc-flip-collect.sh`).
+
+### ARM64 attack surface (layer L3)
+
+- `--armcrypto`: 13 methods — NEON AES/SHA1/SHA256/SHA512/SHA3/PMULL/SM3/SM4
+  plus SVE2 sveaes/svepmull/svesha3/svesm4 via `.inst` numeric encodings
+  (GCC has no intrinsics for them); KAT software references for aes/pmull.
+- `--sve2`: 5 datapath methods (fmla/gather/fcmla/bitperm/bfdot) with golden
+  comparison; `--fma` runtime-dispatches 12 SVE2 FMLA kernels.
+- `--ls64` (64-byte atomics), `--rdrand` (RNDR), `--tsc` (CNTVCT_EL0),
+  `--regs` (NEON v0–v31 + SVE z0–z31 full-register rotation).
+- Cache maintenance: `--cache-flush` / `--cache-clwb` (DC CIVAC/CVAC),
+  `--memrate-method write64zva` (DC ZVA).
+- rand-payload methods for cacheline (ownership tags) and l1cache
+  (set/way geometry + bitgen streams); bitgen-mutated cache write path.
+- `--taskset physical`: SMT-aware affinity (first thread per physical core).
+- `--rapl` / `--raplstat`: arm64 hwmon power telemetry (SoC/DDR rails).
+- Build: SVE2 march auto-injection (`-O3
+  -march=armv8.6-a+sve2+bf16+i8mm+sve2-bitperm`, toolchain + hardware dual
+  gated); objdump z-register acceptance gate; gcc 7.3 compatibility guards.
+
+### Orchestration and diagnostics (layers L4/L5)
+
+- `scripts/sdc-run.sh`: topology self-deriving entry point — `full` /
+  `scan` / `path` / `pair` / `abtest` modes; `--preheat` residual-heat
+  window before the verify window; `--keep-bg` background concurrency during
+  per-core scans; SDCShield hook for parallel detection.
+- Bit-level verify diagnostics (fma/vecfp/matrix): element index,
+  expected/actual hex, flip count, xor mask.
+- `-Y` yaml `verify-failures` field; `scripts/sdc-report.sh` diffable
+  per-run mismatch reports; `abtest` A/B regression mode between two builds.
+- verify fault-injection drills: every verify-capable component had a bit
+  manually flipped to prove the mismatch is caught.
+
+### CI (quality infrastructure)
+
+- Daily 15-image openEuler arm64 matrix (20.03 / 22.03 / 24.03 × 5 SPs):
+  full `--sequential --verify` suite, 62 `*-method` sweeps, benchmark
+  sampling, and a complete stressor × image result matrix (bogo-ops/s with
+  honest-skip reasons) in the job summary.
+- `ghcr.io/wangxumarshall/sdc-stressng:verify-<tag>` image publishing via
+  manual dispatch.
+- The 8-round CI bring-up caught real bugs (pmull golden dispatch by index
+  vs by name, HWCAP2_RNG fallback, fork-starvation-safe assertions) —
+  documented as engineering records in `docs/superpowers/research/`.
