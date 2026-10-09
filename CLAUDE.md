@@ -99,8 +99,11 @@ make clean && make -j$(nproc)   # 本机 gcc 12 即可；make clean 在拉取后
 
 - `multi-os-verify.yml`：每日 cron + 手动 dispatch，15 个 openEuler arm64 镜像（20.03/22.03/24.03 × 5 SP）全量验证 + CI-MATRIX 结果矩阵；`scripts/ci-monitor.sh`（匿名 API）监控
 - `release-image.yml`：on release published → 从 tag 构建 → 推 `ghcr.io/wangxumarshall/sdc-stressng:{stable,<tag>}`（arm64 only）
-- 发布流程：CI 15/15 全绿 → `git tag v<VERSION> && git push origin <tag>` → GitHub Release（notes 摘 CHANGELOG 对应节）→ 自动触发双产物：**15 镜像二进制 assets**（release 事件的 multi-os-verify 全量验证后，每镜像上传 `stress-ng-<ver>.openeuler-<tag>.aarch64.tar.gz` + sha256）+ ghcr docker 镜像（release-image.yml）
+- 发布流程：CI 15/15 全绿 → `git tag v<VERSION> && git push origin <tag>` → GitHub Release（notes 摘 CHANGELOG 对应节）→ 自动触发双产物：**15 镜像自包含包 assets**（release 事件的 multi-os-verify 全量验证后，每镜像上传 `sdc-stressng-<ver>.openeuler-<tag>.aarch64.tar.gz`+sha256 = 二进制 + excite.sh 一键激发 + sdc-run 脚本集 + 非 glibc 依赖库捆绑；glibc 由目标机 OS 提供、包内 README 标注最低版本）+ ghcr docker 镜像（release-image.yml）。**tag 必须打在含最新 workflow 的 commit 上**（release 事件取 tag commit 的 workflow 文件）
 
 ## 当前遗留（backlog，权威来源 = docs/excitation-guide.md gap 路线图）
 
 互联/L3 跨实例定向激发、lrcpc/ilrcpc 通路、SMT×MMU/atomics pair 组合扩展、OoO 调度器压力、真机 bitgen 校准闭环（sdc-flip-collect.sh 待 CP1 数据）、ci-trend.sh 一周稳定性对比（需认证环境）、CP1 真机 A/B 长跑（abtest 已就绪）。
+
+## 规则
+- git 提交中不能出现"Co-Authored-By: Claude Code"行

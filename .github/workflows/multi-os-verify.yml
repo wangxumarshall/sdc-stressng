@@ -294,14 +294,20 @@ jobs:
 
       # ---------------------------------------------------------------
       # Release publishing (release events only): attach this image's
-      # freshly built binary + the orchestration scripts to the Release
-      # that triggered the run. Runs in the pre-sequential window for
-      # the same OCI-runtime reason as the artifact uploads above.
-      # Concurrent-safe: every matrix job uploads uniquely named assets
-      # (binary tarball + sha256), so all 15 jobs upload in parallel.
-      # NOTE: the released binary is the one this job just built AND
-      # the full suite below still gates the job conclusion — a suite
-      # failure turns the release run red even though assets exist.
+      # SELF-CONTAINED package to the Release that triggered the run:
+      # binary + one-command excite.sh + orchestration scripts + every
+      # non-glibc shared library the binary needs (ldd is transitive;
+      # rpm -qf separates glibc components — glibc ships with the host
+      # OS, the tarball records its minimum version). excite.sh prefers
+      # the bundled lib/ automatically, so the package runs without any
+      # dependency installs.
+      #
+      # Runs in the pre-sequential window for the same OCI-runtime
+      # reason as the artifact uploads above. Concurrent-safe: every
+      # matrix job uploads uniquely named assets (package tarball +
+      # sha256). The full suite below still gates the job conclusion —
+      # a suite failure turns the release run red even though assets
+      # exist: released binaries are tested binaries.
       # ---------------------------------------------------------------
       - name: Publish binary to GitHub Release
         if: github.event_name == 'release'
@@ -311,8 +317,24 @@ jobs:
         run: |
           set -eu
           VER=$(./stress-ng --version | head -1 | awk '{print $3}')
-          ASSET="stress-ng-${VER}.openeuler-${{ matrix.image_tag }}.aarch64.tar.gz"
-          tar -czf "$ASSET" stress-ng scripts/sdc-run.sh scripts/sdc-report.sh scripts/sdc-scan.sh
+          PKG="sdc-stressng-${VER}.openeuler-${{ matrix.image_tag }}.aarch64"
+          ASSET="${PKG}.tar.gz"
+          mkdir -p "$PKG/lib" "$PKG/scripts"
+          cp stress-ng "$PKG/"
+          cp scripts/excite.sh "$PKG/"
+          cp scripts/sdc-run.sh scripts/sdc-report.sh scripts/sdc-scan.sh "$PKG/scripts/"
+          cp packaging/README-RELEASE.md "$PKG/README.md"
+          chmod +x "$PKG/excite.sh" "$PKG/scripts/"*.sh
+          ldd stress-ng | awk '/=> \// {print $3}' | sort -u | while read -r so; do
+            owner=$(rpm -qf "$so" 2>/dev/null | head -1 || true)
+            case "$owner" in
+              glibc-*) ;;                 # host OS provides glibc
+              *) cp -L "$so" "$PKG/lib/" ;;
+            esac
+          done
+          GLIBC_MIN=$(objdump -T stress-ng 2>/dev/null | grep -o 'GLIBC_2\.[0-9]*' | sort -Vu | tail -1 || true)
+          [ -n "$GLIBC_MIN" ] && echo "Minimum glibc required: ${GLIBC_MIN#GLIBC_}" >> "$PKG/README.md"
+          tar -czf "$ASSET" "$PKG"
           sha256sum "$ASSET" > "${ASSET}.sha256"
           for f in "$ASSET" "${ASSET}.sha256"; do
             curl -sf -X POST \

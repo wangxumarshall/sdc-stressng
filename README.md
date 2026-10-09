@@ -151,10 +151,17 @@ Container images: `ghcr.io/wangxumarshall/sdc-stressng:verify-<git-tag>`
 (published via the manual `publish_image` dispatch of the CI workflow).
 
 Every published [Release](https://github.com/wangxumarshall/sdc-stressng/releases)
-carries per-image binaries: each of the 15 openEuler images builds
-`stress-ng` in its own container during the release-triggered CI run and
-attaches it (tarball + sha256, bundled with the `sdc-run` scripts) as a
-Release asset — released binaries are tested binaries.
+carries **self-contained per-image packages**: each of the 15 openEuler
+images builds `stress-ng` in its own container during the release-triggered
+CI run and attaches it as a tarball (+ sha256) containing the binary, the
+`excite.sh` one-command maximum-excitation entry, the `sdc-run` orchestration
+scripts and every non-glibc shared library — extract and run, no build
+step, no dependency installs:
+
+```bash
+tar xzf sdc-stressng-<ver>.openeuler-<your-image>.aarch64.tar.gz
+cd sdc-stressng-*/ && ./excite.sh 120
+```
 
 ## Building
 

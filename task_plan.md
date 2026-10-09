@@ -100,11 +100,26 @@
 
 ## Next Step
 
-**Phase 9 进行中**：Release v0.22.01-sdc.1 已发布，release 事件触发
-multi-os-verify 37873644976（15 镜像全量验证 + **每镜像上传二进制 asset**）+
-release-image 37873644971（docker :stable）。cron 检查 30 assets 到齐后闭环。
+**Phase 10 进行中**：Release 资产升级为自包含包（依赖库捆绑 + excite.sh 一键激发）。
+旧格式 run 已取消、release 已删除；改完打包流水线后移 tag 重发 v0.22.01-sdc.1。
 
-### Phase 9: Release 携带 15 镜像二进制（2026-10-08 用户需求） — in_progress
+### Phase 10: Release 自包含包（2026-10-09 用户需求：含依赖库 + 一键式激发脚本） — in_progress
+**设计决策 D10-1**：不用 STATIC=1（会打破"发布=CI 全量测试的同一二进制"不变量，且静态库缺失使
+judy/mpfr/xxhash 类 stressor 跳过、覆盖缩水）；用**动态二进制 + 捆绑全部非 glibc 依赖
+（ldd 递归 + rpm -qf 过滤 glibc 包）+ excite.sh 设置 LD_LIBRARY_PATH**。glibc 不捆绑
+（坑多），由"按目标机 OS 选对应镜像 tar"覆盖（老 glibc 构建向上兼容），README 声明。
+tar 结构：stress-ng + excite.sh + scripts/{sdc-run,sdc-report,sdc-scan}.sh + lib/*.so + README.md
+- [x] task_plan 记录（本条）
+- [x] 取消旧格式 release runs（cancel 409=已完成/失效；release 已 DELETE 204——旧 run 上传目标不存在，自然失效）
+- [x] scripts/excite.sh：警示 banner + lib/ 自动 LD_LIBRARY_PATH + 默认 120min + `--` 透传 + `--preheat 0` 可覆盖；repo/tarball 双布局自适应
+- [x] packaging/README-RELEASE.md（快速上手/安全/glibc 兼容性/SDCShield 协同/包内容表）
+- [x] workflow Publish binary 步骤改造：自包含包打包（ldd+rpm -qf 捆绑非 glibc so + objdump GLIBC_MIN 追加进 README）
+- [x] 本地验证：捆绑 dry-run 正确（libatomic/libcrypt/libgmp/libz 捆、glibc 跳过）；全流程打包（tar 1.6MB，结构 10 文件，glibc≥2.38 标注）；**解包目录端到端实跑 `./excite.sh 1 -- --preheat 0` rc=0**（库解析/参数透传/拓扑推导全通）
+- [x] 文档同步（CHANGELOG/CLAUDE.md/README 资产描述 + CLAUDE.md 记录"tag 须含最新 workflow"要点）
+- [x] commit + push + **tag -f v0.22.01-sdc.1** + 重发 release
+- [ ] cron 检查：新 run 全绿 + 30 assets（自包含包）到齐
+
+### Phase 9: Release 携带 15 镜像二进制（2026-10-08 用户需求） — superseded by Phase 10
 - [x] multi-os-verify.yml：on 加 release(published)；build-test 加 job 级 contents:write；"Publish binary" 步骤（tar.gz=stress-ng+sdc-run/sdc-report/sdc-scan 脚本 + .sha256，curl 上传 assets_url）插在 pre-sequential 窗口（OCI 约束）；并发安全（每 job 唯一文件名）（commit 21022d6f9）
 - [x] 文档同步：CLAUDE.md 发布流程 / CHANGELOG / README CI 节
 - [x] tag v0.22.01-sdc.1（21022d6f9）+ Release 发布（201，notes 含"released binaries are tested binaries"说明）

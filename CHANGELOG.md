@@ -19,11 +19,15 @@ full rebuild clean, bitgen-consumer regression
 and a fault-injection drill on the fma verify path (injected bit 45 caught
 with full bit-level diagnostics).
 
-Release assets: every published Release now carries per-image binaries —
-each of the 15 openEuler images builds `stress-ng` inside its own container
-during the release-triggered CI run and attaches it (tarball + sha256,
-packaged with the sdc-run orchestration scripts) to the Release. Released
-binaries are tested binaries.
+Release assets: every published Release now carries **self-contained
+per-image packages** — each of the 15 openEuler images builds `stress-ng`
+inside its own container during the release-triggered CI run and attaches
+`sdc-stressng-<ver>.openeuler-<image>.aarch64.tar.gz` (+ sha256): the
+binary, the `excite.sh` one-command maximum-excitation entry, the full
+sdc-run orchestration scripts, and every non-glibc shared library the
+binary needs (bundled in `lib/`, auto-preferred via `LD_LIBRARY_PATH`;
+the package records its minimum glibc). Extract and run — no build step,
+no dependency installs. Released binaries are tested binaries.
 
 ## [0.22.00-sdc.1] — 2026-10-08
 
