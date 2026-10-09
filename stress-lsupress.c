@@ -90,20 +90,20 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_load_int64(
 	__asm__ __volatile__ ("" : : "r" (sum) : "memory");	/* consume */
 }
 
-/*  store-int64: bitgen-shaped stream of stores */
+/*  store-int64: per-address deterministic values (splitmix hash of the
+ *  seed and the target address — uniform avalanche, and the verify
+ *  oracle can recompute it at any address at any time) */
 static NOINLINE OPTIMIZE3 void stress_lsupress_store_int64(
 	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
 {
-	stress_bitgen_t bg;
 	size_t i;
 
-	stress_bitgen_init(&bg);
-	stress_bitgen_seed(&bg, seed);
 	for (i = 0; i < buf_words; i++)
-		buf[i] = stress_bitgen_u64(&bg);
+		buf[i] = lsupress_value(seed,
+			(uint64_t)(uintptr_t)(buf + i));
 	stress_bogo_inc(args);
 }
 
@@ -891,12 +891,47 @@ static int stress_lsupress(stress_args_t *args)
 	lsupress_engine_init(&engine, lsupress_va_size, lsupress_window, seed,
 		lsupress_walk, lsupress_huge);
 	if (engine.used) {
+		const bool verify = (g_opt_flags & OPT_FLAGS_VERIFY) != 0;
+
 		stress_memory_anon_name_set(engine.map_base, engine.map_size,
 			"lsupress-va");
 		buf = (uint64_t *)engine.win;
 		buf_words = engine.win_size / sizeof(uint64_t);
 		do {
 			func(args, buf, buf_words, seed);
+			if (verify && (func == stress_lsupress_store_int64)) {
+				/* store-int64 promises value == f(seed, addr)
+				 * at every address; other methods carry no
+				 * f-invariant (copy moves values across
+				 * addresses, zva writes zeros, mixes compute)
+				 * and only run their checksum consumers */
+				const uint64_t *w = (const uint64_t *)engine.win;
+				const size_t words = engine.win_size / sizeof(uint64_t);
+				size_t k, fails = 0;
+
+				for (k = 0; k < words; k += 512) {
+					const uint64_t expect = lsupress_value(seed,
+						(uint64_t)(uintptr_t)(w + k));
+
+					if (UNLIKELY(w[k] != expect)) {
+						const uint64_t diff = w[k] ^ expect;
+						int bits = 0, b;
+
+						for (b = 0; b < 64; b++)
+							if (diff & (1ULL << b))
+								bits++;
+						pr_fail("%s: addr %p expected 0x%16.16" PRIx64
+							" actual 0x%16.16" PRIx64
+							" %d bit(s) flipped (xor 0x%16.16" PRIx64 ")\n",
+							args->name, (const void *)(w + k),
+							expect, w[k], bits, diff);
+						if (++fails >= 4)
+							break;
+					}
+				}
+				if (fails)
+					return EXIT_FAILURE;
+			}
 			lsupress_engine_next_window(&engine);
 			buf = (uint64_t *)engine.win;
 		} while (stress_continue(args));
