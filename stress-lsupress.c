@@ -21,6 +21,11 @@
 #include "core-mmap.h"
 
 #if defined(STRESS_ARCH_ARM)
+#include <arm_neon.h>
+#include <sys/auxv.h>
+#endif
+
+#if defined(STRESS_ARCH_ARM)
 
 /*
  *  stress-lsupress.c - exercise the arm64 load/store unit across
@@ -55,7 +60,11 @@ typedef void (*stress_lsupress_func_t)(
 typedef struct {
 	const char *name;
 	const stress_lsupress_func_t func;
+	const uint32_t hwcap_req;	/* HWCAP bit required, 0 = none */
 } stress_lsupress_method_info_t;
+
+static uint32_t lsupress_hwcap;		/* cached AT_HWCAP */
+static bool lsupress_hwcap_probed;
 
 static const char *stress_lsupress_method(const size_t i);
 
@@ -227,6 +236,269 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_mix_3l_2alu_1s(
 
 #define LSUPRESS_METHOD_ALL	0
 #define LSUPRESS_BUF_WORDS	(1024 * 1024)	/* 8MB fallback buffer */
+
+/* ---- vector method family ------------------------------------------ */
+
+/*  load-int128: ldp pair consumption (compiler pairs the loads) */
+static NOINLINE OPTIMIZE3 void stress_lsupress_load_int128(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	uint64_t sum = seed;
+	size_t i;
+
+	for (i = 0; i + 1 < buf_words; i += 2)
+		sum ^= buf[i] ^ buf[i + 1];
+	stress_bogo_inc(args);
+	__asm__ __volatile__ ("" : : "r" (sum) : "memory");
+}
+
+/*  load-fp64: ldr d checksum chain */
+static NOINLINE OPTIMIZE3 void stress_lsupress_load_fp64(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	const double *a = (const double *)buf;
+	const size_t n = buf_words / 2;
+	double acc = (double)seed;
+	size_t i;
+
+	for (i = 0; i < n; i++)
+		acc += a[i];
+	stress_bogo_inc(args);
+	__asm__ __volatile__ ("" : : "r" (acc) : "memory");
+}
+
+/*  load-neon: interleaved vld2q loads, xor-reduced */
+static NOINLINE OPTIMIZE3 void stress_lsupress_load_neon(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	const uint8x16_t *p = (const uint8x16_t *)buf;
+	const size_t vecs = (buf_words * sizeof(uint64_t)) / 32;
+	uint8x16_t acc0 = vdupq_n_u8((uint8_t)seed);
+	uint8x16_t acc1 = vdupq_n_u8((uint8_t)(seed >> 8));
+	size_t i;
+
+	for (i = 0; i < vecs; i++) {
+		const uint8x16x2_t v = vld2q_u8((const uint8_t *)(p + i));
+
+		acc0 = veorq_u8(acc0, v.val[0]);
+		acc1 = veorq_u8(acc1, v.val[1]);
+	}
+	stress_bogo_inc(args);
+	__asm__ __volatile__ ("" : : "r" (vgetq_lane_u64((uint64x2_t)acc0, 0)) : "memory");
+}
+
+/*  store-neon: bitgen-shaped q-register stores */
+static NOINLINE OPTIMIZE3 void stress_lsupress_store_neon(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	stress_bitgen_t bg;
+	uint64x2_t *p = (uint64x2_t *)buf;
+	const size_t vecs = buf_words / 2;
+	size_t i;
+
+	stress_bitgen_init(&bg);
+	stress_bitgen_seed(&bg, seed);
+	for (i = 0; i < vecs; i++) {
+		const uint64x2_t v = {
+			stress_bitgen_u64(&bg),
+			stress_bitgen_u64(&bg)
+		};
+
+		vst1q_u64((uint64_t *)(p + i), v);
+	}
+	stress_bogo_inc(args);
+}
+
+/*  store-zva: DC ZVA line zeroing (64B stride, Kunpeng line size) */
+static NOINLINE OPTIMIZE3 void stress_lsupress_store_zva(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	const uint8_t *p = (const uint8_t *)buf;
+	const size_t bytes = buf_words * sizeof(uint64_t);
+	size_t off;
+
+	(void)seed;
+	for (off = 0; off + 64 <= bytes; off += 64) {
+		__asm__ __volatile__ (
+			"dc zva, %0"
+			:
+			: "r" (p + off)
+			: "memory");
+	}
+	stress_bogo_inc(args);
+}
+
+/*  mix-neon-fma: batch q loads -> vfma -> batch q stores */
+static NOINLINE OPTIMIZE3 void stress_lsupress_mix_neon_fma(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	const float64x2_t *a = (const float64x2_t *)buf;
+	float64x2_t *b = (float64x2_t *)(buf + buf_words / 2);
+	const size_t vecs = buf_words / 4;	/* half src, half dst */
+	const float64x2_t c = vdupq_n_f64(1.0000000000000002);
+	float64x2_t acc = vdupq_n_f64((double)seed);
+	size_t i;
+
+	for (i = 0; i < vecs; i++) {
+		const float64x2_t v0 = vld1q_f64((const double *)(a + i));
+		const float64x2_t v1 = vld1q_f64((const double *)(a + i + vecs));
+
+		acc = vfmaq_f64(acc, v0, c);		/* fmla v */
+		acc = vfmaq_f64(acc, v1, c);
+		vst1q_f64((double *)(b + i), acc);
+	}
+	stress_bogo_inc(args);
+}
+
+#if defined(__GNUC__) && __GNUC__ >= 10
+#include <arm_sve.h>
+
+/*  load-sve: full-VL ld1d, xor-reduced (HWCAP_SVE gated at dispatch) */
+__attribute__((target("arch=armv8.2-a+sve")))
+static NOINLINE OPTIMIZE3 void stress_lsupress_load_sve(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	svbool_t pg = svptrue_b64();
+	svuint64_t acc = svdup_u64(seed);
+	const uint64_t vl = (uint64_t)svcntd();
+	uint64_t *p = buf;
+	uint64_t k, sink;
+
+	for (k = 0; k + vl <= buf_words; k += vl) {
+		svuint64_t v = svld1_u64(pg, p + k);
+
+		acc = sveor_u64_x(pg, acc, v);
+	}
+	stress_bogo_inc(args);
+	sink = svlastb_u64(pg, acc);
+	__asm__ __volatile__ ("" : : "r" (sink) : "memory");
+}
+
+/*  load-sve-gather: 64B-strided gather, xor-reduced */
+__attribute__((target("arch=armv8.2-a+sve")))
+static NOINLINE OPTIMIZE3 void stress_lsupress_load_sve_gather(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	svbool_t pg = svptrue_b64();
+	svuint64_t idx = svindex_u64(0, 8);	/* 64B stride, in elements */
+	svuint64_t acc = svdup_u64(seed);
+	const uint64_t vl = (uint64_t)svcntd();
+	uint64_t k, sink;
+
+	for (k = 0; k + (vl - 1) * 8 < buf_words; k += vl * 8) {
+		svuint64_t v = svld1_gather_u64index_u64(pg, buf + k, idx);
+
+		acc = sveor_u64_x(pg, acc, v);
+	}
+	stress_bogo_inc(args);
+	sink = svlastb_u64(pg, acc);
+	__asm__ __volatile__ ("" : : "r" (sink) : "memory");
+}
+
+/*  store-sve: full-VL st1d of bitgen shapes */
+__attribute__((target("arch=armv8.2-a+sve")))
+static NOINLINE OPTIMIZE3 void stress_lsupress_store_sve(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	svbool_t pg = svptrue_b64();
+	stress_bitgen_t bg;
+	const uint64_t vl = (uint64_t)svcntd();
+	uint64_t *p = buf;
+	uint64_t k;
+
+	stress_bitgen_init(&bg);
+	stress_bitgen_seed(&bg, seed);
+	for (k = 0; k + vl <= buf_words; k += vl) {
+		svuint64_t v;
+		uint64_t j, tmp[32];	/* max VL lanes (2048-bit) */
+		const uint64_t lanes = vl < 32 ? vl : 32;
+
+		for (j = 0; j < lanes; j++)
+			tmp[j] = stress_bitgen_u64(&bg);
+		v = svld1_u64(pg, tmp);
+		svst1_u64(pg, p + k, v);
+	}
+	stress_bogo_inc(args);
+}
+
+/*  copy-sve: full-VL ld1d + st1d */
+__attribute__((target("arch=armv8.2-a+sve")))
+static NOINLINE OPTIMIZE3 void stress_lsupress_copy_sve(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	svbool_t pg = svptrue_b64();
+	const uint64_t vl = (uint64_t)svcntd();
+	uint64_t *src = buf;
+	uint64_t *dst = buf + buf_words / 2;
+	uint64_t k;
+
+	(void)seed;
+	for (k = 0; k + vl <= buf_words / 2; k += vl) {
+		svuint64_t v = svld1_u64(pg, src + k);
+
+		svst1_u64(pg, dst + k, v);
+	}
+	stress_bogo_inc(args);
+}
+
+/*  mix-sve-fma: batch ld1d -> fmla -> st1d, full VL */
+__attribute__((target("arch=armv8.2-a+sve")))
+static NOINLINE OPTIMIZE3 void stress_lsupress_mix_sve_fma(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	svbool_t pg = svptrue_b64();
+	svfloat64_t acc = svdup_f64((double)seed);
+	const svfloat64_t c = svdup_f64(1.0000000000000002);
+	const uint64_t vl = (uint64_t)svcntd();
+	const size_t half = buf_words / 2;
+	uint64_t *src = buf;
+	double *dst = (double *)(buf + half);
+	uint64_t k;
+
+	for (k = 0; k + vl <= half; k += vl) {
+		svfloat64_t v0 = svld1_f64(pg, (const double *)(src + k));
+		svfloat64_t v1 = svld1_f64(pg, (const double *)(src + k + half));
+
+		acc = svmla_f64_x(pg, acc, v0, c);	/* fmla */
+		acc = svmla_f64_x(pg, acc, v1, c);
+		svst1_f64(pg, dst + k, acc);
+	}
+	stress_bogo_inc(args);
+}
+#endif
 #define LSUPRESS_DEFAULT_VA_SIZE	(100ULL << 30)	/* 100GB NORESERVE map/worker */
 #define LSUPRESS_DEFAULT_WINDOW	(256ULL << 20)	/* 256MB working window/worker */
 
@@ -312,13 +584,26 @@ static void lsupress_engine_free(lsupress_engine_t *e)
 }
 
 static stress_lsupress_method_info_t lsupress_methods[] = {
-	{ "all",		NULL },				/* 0: rotate */
-	{ "load-int64",		stress_lsupress_load_int64 },
-	{ "store-int64",	stress_lsupress_store_int64 },
-	{ "copy-int64",		stress_lsupress_copy_int64 },
-	{ "mix-2l-alu-1s",	stress_lsupress_mix_2l_alu_1s },
-	{ "mix-1l-fpu-1s",	stress_lsupress_mix_1l_fpu_1s },
-	{ "mix-3l-2alu-1s",	stress_lsupress_mix_3l_2alu_1s },
+	{ "all",		NULL,				0 },	/* 0: rotate */
+	{ "load-int64",		stress_lsupress_load_int64,	0 },
+	{ "store-int64",	stress_lsupress_store_int64,	0 },
+	{ "copy-int64",		stress_lsupress_copy_int64,	0 },
+	{ "mix-2l-alu-1s",	stress_lsupress_mix_2l_alu_1s,	0 },
+	{ "mix-1l-fpu-1s",	stress_lsupress_mix_1l_fpu_1s,	0 },
+	{ "mix-3l-2alu-1s",	stress_lsupress_mix_3l_2alu_1s,	0 },
+	{ "load-int128",	stress_lsupress_load_int128,	0 },
+	{ "load-fp64",		stress_lsupress_load_fp64,	0 },
+	{ "load-neon",		stress_lsupress_load_neon,	0 },
+	{ "store-neon",		stress_lsupress_store_neon,	0 },
+	{ "store-zva",		stress_lsupress_store_zva,	0 },
+	{ "mix-neon-fma",	stress_lsupress_mix_neon_fma,	0 },
+#if defined(__GNUC__) && __GNUC__ >= 10
+	{ "load-sve",		stress_lsupress_load_sve,	HWCAP_SVE },
+	{ "load-sve-gather",	stress_lsupress_load_sve_gather, HWCAP_SVE },
+	{ "store-sve",		stress_lsupress_store_sve,	HWCAP_SVE },
+	{ "copy-sve",		stress_lsupress_copy_sve,	HWCAP_SVE },
+	{ "mix-sve-fma",	stress_lsupress_mix_sve_fma,	HWCAP_SVE },
+#endif
 };
 
 static const char *stress_lsupress_method(const size_t i)
@@ -371,6 +656,18 @@ static int stress_lsupress(stress_args_t *args)
 	}
 	if (lsupress_method == LSUPRESS_METHOD_ALL)
 		lsupress_method = 1 + (stress_mwc32() % (method_max - 1));
+
+	/* feature-gated methods: honest skip (never a fake run) */
+	if (!lsupress_hwcap_probed) {
+		lsupress_hwcap = (uint32_t)getauxval(AT_HWCAP);
+		lsupress_hwcap_probed = true;
+	}
+	if (lsupress_methods[lsupress_method].hwcap_req &&
+	    !(lsupress_hwcap & lsupress_methods[lsupress_method].hwcap_req)) {
+		pr_inf_skip("%s: lsupress-method %s skipped, CPU does not support the required feature\n",
+			args->name, lsupress_methods[lsupress_method].name);
+		return EXIT_NOT_IMPLEMENTED;
+	}
 
 	func = lsupress_methods[lsupress_method].func;
 

@@ -6165,9 +6165,12 @@ copy and mixed dataflow templates). arm64 only; other architectures
 run it as unimplemented.
 .TQ
 .B \-\-lsupress\-method M
-select the lsupress method: all, load\-int64, store\-int64, copy\-int64,
-mix\-2l\-alu\-1s, mix\-1l\-fpu\-1s, mix\-3l\-2alu\-1s.
-More instruction-spectrum methods arrive in later commits.
+select the lsupress method: all, load\-int64, load\-int128, load\-fp64,
+load\-neon, load\-sve, load\-sve\-gather, store\-int64, store\-neon,
+store\-sve, store\-zva, copy\-int64, copy\-sve, mix\-2l\-alu\-1s,
+mix\-1l\-fpu\-1s, mix\-3l\-2alu\-1s, mix\-neon\-fma, mix\-sve\-fma.
+SVE methods are skipped on CPUs without SVE. More methods (atomics,
+ls64) arrive in later commits.
 .TQ
 .B \-\-lsupress\-ops N
 stop after N lsupress bogo operations.
