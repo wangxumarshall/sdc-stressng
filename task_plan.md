@@ -100,10 +100,11 @@
 
 ## Next Step
 
-**Phase 10 进行中**：Release 资产升级为自包含包（依赖库捆绑 + excite.sh 一键激发）。
-旧格式 run 已取消、release 已删除；改完打包流水线后移 tag 重发 v0.22.01-sdc.1。
+**无未决项**。Phase 10 闭环：v0.22.01-sdc.1 Release 已上线 **30 个自包含包 assets**
+（15 镜像 × tar.gz+sha256）+ ghcr docker :stable。后续候选：excite 深度增强
+（分核分组/时间片轮换，见用户压力评估讨论）+ excitation-guide gap 路线图。
 
-### Phase 10: Release 自包含包（2026-10-09 用户需求：含依赖库 + 一键式激发脚本） — in_progress
+### Phase 10: Release 自包含包（2026-10-09 用户需求：含依赖库 + 一键式激发脚本） — complete
 **设计决策 D10-1**：不用 STATIC=1（会打破"发布=CI 全量测试的同一二进制"不变量，且静态库缺失使
 judy/mpfr/xxhash 类 stressor 跳过、覆盖缩水）；用**动态二进制 + 捆绑全部非 glibc 依赖
 （ldd 递归 + rpm -qf 过滤 glibc 包）+ excite.sh 设置 LD_LIBRARY_PATH**。glibc 不捆绑
@@ -117,7 +118,7 @@ tar 结构：stress-ng + excite.sh + scripts/{sdc-run,sdc-report,sdc-scan}.sh + 
 - [x] 本地验证：捆绑 dry-run 正确（libatomic/libcrypt/libgmp/libz 捆、glibc 跳过）；全流程打包（tar 1.6MB，结构 10 文件，glibc≥2.38 标注）；**解包目录端到端实跑 `./excite.sh 1 -- --preheat 0` rc=0**（库解析/参数透传/拓扑推导全通）
 - [x] 文档同步（CHANGELOG/CLAUDE.md/README 资产描述 + CLAUDE.md 记录"tag 须含最新 workflow"要点）
 - [x] commit + push + **tag -f v0.22.01-sdc.1** + 重发 release
-- [ ] cron 检查：新 run 全绿 + 30 assets（自包含包）到齐
+- [x] **Phase 10 闭环**：第一次发布 attempt 15 job 全死（assets_url→404→curl exit 22）；修复 upload_url+剥模板（645469811）后重发——**multi-os-verify 37892218655 + release-image 37892218673 双 success，Publish 步骤 15/15 success，30 assets 到齐**（15×sdc-stressng-0.22.01-sdc.1.openeuler-<tag>.aarch64.tar.gz ~1.8MB + 15×sha256）
 
 ### Phase 9: Release 携带 15 镜像二进制（2026-10-08 用户需求） — superseded by Phase 10
 - [x] multi-os-verify.yml：on 加 release(published)；build-test 加 job 级 contents:write；"Publish binary" 步骤（tar.gz=stress-ng+sdc-run/sdc-report/sdc-scan 脚本 + .sha256，curl 上传 assets_url）插在 pre-sequential 窗口（OCI 约束）；并发安全（每 job 唯一文件名）（commit 21022d6f9）

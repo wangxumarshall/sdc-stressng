@@ -2,7 +2,21 @@
 
 # Progress Log
 
-## Session 2026-10-08（续）: Phase 8 上游同步 #1 — V0.22.01 并入 main
+## Session 2026-10-09（续）: Phase 10 闭环 — Release 30 个自包含包 assets 上线
+
+三次发布迭代后全链打通：
+1. **第一次 attempt**（a48ecb68d）：15 build-test 全死在 Publish binary 步骤——根因
+   `github.event.release.assets_url` 是 GET 列表端点（api.github.com），POST 上传
+   必须 `upload_url`（uploads.github.com，需剥 `{?name,label}` 模板）→ curl exit 22。
+   **教训入档**：本地验证盲区——远程 API 交互从开发机不可达，此类步骤须首跑盯守
+2. **修复**（645469811）：upload_url + `%%\{*` 剥模板 + tag -f + 删 release 重发
+3. **终局**：multi-os-verify 37892218655 + release-image 37892218673 **双 success**；
+   Publish 步骤 15/15 success；**Release 30 assets 到齐**（15×
+   sdc-stressng-0.22.01-sdc.1.openeuler-<tag>.aarch64.tar.gz ~1.8MB + 15×sha256，
+   每个 = 二进制 + excite.sh 一键激发 + sdc-run 脚本集 + 非 glibc 依赖库捆绑）
+   用户现场体验：下载对应镜像 tar → 解压 → `./excite.sh 120`，零安装零编译
+
+## Session 2026-10-09: Phase 10 自包含包（用户需求：依赖库 + 一键激发）
 
 D14-3 策略首次实战，全流程按 docs/upstream-sync.md 执行：
 - 网络突破：upstream remote 改 SSH（https 443 不通、SSH 一直通）→ fetch V0.22.01（仅落后 4 commits）
