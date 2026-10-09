@@ -150,6 +150,12 @@ Daily, on 15 openEuler arm64 container images (20.03 / 22.03 / 24.03 × 5 SPs):
 Container images: `ghcr.io/wangxumarshall/sdc-stressng:verify-<git-tag>`
 (published via the manual `publish_image` dispatch of the CI workflow).
 
+Every published [Release](https://github.com/wangxumarshall/sdc-stressng/releases)
+carries per-image binaries: each of the 15 openEuler images builds
+`stress-ng` in its own container during the release-triggered CI run and
+attaches it (tarball + sha256, bundled with the `sdc-run` scripts) as a
+Release asset — released binaries are tested binaries.
+
 ## Building
 
 ```bash

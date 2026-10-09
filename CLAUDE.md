@@ -99,7 +99,7 @@ make clean && make -j$(nproc)   # 本机 gcc 12 即可；make clean 在拉取后
 
 - `multi-os-verify.yml`：每日 cron + 手动 dispatch，15 个 openEuler arm64 镜像（20.03/22.03/24.03 × 5 SP）全量验证 + CI-MATRIX 结果矩阵；`scripts/ci-monitor.sh`（匿名 API）监控
 - `release-image.yml`：on release published → 从 tag 构建 → 推 `ghcr.io/wangxumarshall/sdc-stressng:{stable,<tag>}`（arm64 only）
-- 发布流程：CI 15/15 全绿 → `git tag v<VERSION> && git push origin <tag>` → GitHub Release（notes 摘 CHANGELOG 对应节）→ 镜像自动构建 → ghcr manifest 200 验证
+- 发布流程：CI 15/15 全绿 → `git tag v<VERSION> && git push origin <tag>` → GitHub Release（notes 摘 CHANGELOG 对应节）→ 自动触发双产物：**15 镜像二进制 assets**（release 事件的 multi-os-verify 全量验证后，每镜像上传 `stress-ng-<ver>.openeuler-<tag>.aarch64.tar.gz` + sha256）+ ghcr docker 镜像（release-image.yml）
 
 ## 当前遗留（backlog，权威来源 = docs/excitation-guide.md gap 路线图）
 

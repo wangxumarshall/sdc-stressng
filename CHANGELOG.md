@@ -19,6 +19,12 @@ full rebuild clean, bitgen-consumer regression
 and a fault-injection drill on the fma verify path (injected bit 45 caught
 with full bit-level diagnostics).
 
+Release assets: every published Release now carries per-image binaries —
+each of the 15 openEuler images builds `stress-ng` inside its own container
+during the release-triggered CI run and attaches it (tarball + sha256,
+packaged with the sdc-run orchestration scripts) to the Release. Released
+binaries are tested binaries.
+
 ## [0.22.00-sdc.1] — 2026-10-08
 
 First tagged fork release. Baseline: upstream stress-ng **0.22.00**
