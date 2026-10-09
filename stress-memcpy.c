@@ -22,6 +22,10 @@
 #include "core-mmap.h"
 #include "core-target-clones.h"
 
+#if defined(STRESS_ARCH_ARM)
+#include <arm_neon.h>
+#endif
+
 #define ALIGN_SIZE	(64)
 #define MEMCPY_MEMSIZE	(2048)
 #define MEMCPY_LOOPS	(1024)
@@ -158,6 +162,143 @@ static NOINLINE void stress_memcpy_libc(
 	}
 }
 
+#if defined(STRESS_ARCH_ARM)
+/*
+ *  arm64 instruction-spectrum memcpy variants (SDC fork).
+ *  Each kernel is a hand-written load/store loop; correctness is
+ *  checked by the shared memcpy_check() memcmp wrapper, including
+ *  the misaligned offset calls the loop below performs.
+ */
+static NOINLINE OPTIMIZE3 void *memcpy_ldp_stp(
+	void *dest,
+	const void *src,
+	size_t n)
+{
+	uint64_t *d = (uint64_t *)dest;
+	const uint64_t *s = (const uint64_t *)src;
+	size_t i, pairs = n / 16;
+	const uint8_t *s8 = (const uint8_t *)(s + pairs * 2);
+	uint8_t *d8 = (uint8_t *)(d + pairs * 2);
+
+	for (i = 0; i < pairs; i++) {
+		register uint64_t a, b;
+
+		/* read-only "r" constraints + C-level pointer advance:
+		 * an "+r" post-increment on d gets coalesced with the
+		 * dest parameter's register at -O3, corrupting the
+		 * return value (observed: return = dest + n) */
+		__asm__ __volatile__ (
+			"ldp %0, %1, [%2]"
+			: "=r" (a), "=r" (b)
+			: "r" (s)
+			: "memory");
+		__asm__ __volatile__ (
+			"stp %0, %1, [%2]"
+			:
+			: "r" (a), "r" (b), "r" (d)
+			: "memory");
+		s += 2;
+		d += 2;
+	}
+	for (i = 0; i < (n & 15); i++)
+		*d8++ = *s8++;
+	return dest;
+}
+
+static NOINLINE void stress_memcpy_ldp_stp(
+	uint8_t *str1,
+	uint8_t *str2,
+	uint8_t *str3)
+{
+	int i;
+
+	s_method_name = "ldp-stp";
+	for (i = 0; memcpy_okay && (i < MEMCPY_LOOPS); i++) {
+		(void)memcpy_check(memcpy_ldp_stp, str3, str2, MEMCPY_MEMSIZE);
+		(void)memcpy_check(memcpy_ldp_stp, str2, str3, MEMCPY_MEMSIZE / 2);
+		(void)memcpy_check(memcpy_ldp_stp, str1, str2, MEMCPY_MEMSIZE);
+		(void)memmove_check(memmove, str3 + 1, str3, MEMCPY_MEMSIZE - 1);
+		(void)memcpy_check(memcpy_ldp_stp, str3, str1, MEMCPY_MEMSIZE);
+		(void)memmove_check(memmove, str3 + 64, str3, MEMCPY_MEMSIZE - 64);
+	}
+}
+
+static NOINLINE OPTIMIZE3 void *memcpy_neon(
+	void *dest,
+	const void *src,
+	size_t n)
+{
+	/* uint8x16_t copies compile to ldr q / str q (128-bit NEON) */
+	uint8x16_t *d = (uint8x16_t *)dest;
+	const uint8x16_t *s = (const uint8x16_t *)src;
+	size_t i, vec = n / 16;
+	const uint8_t *s8 = (const uint8_t *)(s + vec);
+	uint8_t *d8 = (uint8_t *)(d + vec);
+
+	for (i = 0; i < vec; i++)
+		d[i] = s[i];
+	for (i = 0; i < (n & 15); i++)
+		*d8++ = *s8++;
+	return dest;
+}
+
+static NOINLINE void stress_memcpy_neon(
+	uint8_t *str1,
+	uint8_t *str2,
+	uint8_t *str3)
+{
+	int i;
+
+	s_method_name = "neon";
+	for (i = 0; memcpy_okay && (i < MEMCPY_LOOPS); i++) {
+		(void)memcpy_check(memcpy_neon, str3, str2, MEMCPY_MEMSIZE);
+		(void)memcpy_check(memcpy_neon, str2, str3, MEMCPY_MEMSIZE / 2);
+		(void)memcpy_check(memcpy_neon, str1, str2, MEMCPY_MEMSIZE);
+		(void)memmove_check(memmove, str3 + 1, str3, MEMCPY_MEMSIZE - 1);
+		(void)memcpy_check(memcpy_neon, str3, str1, MEMCPY_MEMSIZE);
+		(void)memmove_check(memmove, str3 + 64, str3, MEMCPY_MEMSIZE - 64);
+	}
+}
+
+static NOINLINE OPTIMIZE3 void *memcpy_neon_ld2(
+	void *dest,
+	const void *src,
+	size_t n)
+{
+	/* vld2q/vst2q: interleaved 2-register load/store (multi-issue LSU) */
+	uint8_t *d = (uint8_t *)dest;
+	const uint8_t *s = (const uint8_t *)src;
+	size_t i, chunks = n / 32;
+
+	for (i = 0; i < chunks; i++, s += 32, d += 32) {
+		uint8x16x2_t v = vld2q_u8(s);
+
+		vst2q_u8(d, v);
+	}
+	for (i = 0; i < (n & 31); i++)
+		d[i] = s[i];
+	return dest;
+}
+
+static NOINLINE void stress_memcpy_neon_ld2(
+	uint8_t *str1,
+	uint8_t *str2,
+	uint8_t *str3)
+{
+	int i;
+
+	s_method_name = "neon-ld2";
+	for (i = 0; memcpy_okay && (i < MEMCPY_LOOPS); i++) {
+		(void)memcpy_check(memcpy_neon_ld2, str3, str2, MEMCPY_MEMSIZE);
+		(void)memcpy_check(memcpy_neon_ld2, str2, str3, MEMCPY_MEMSIZE / 2);
+		(void)memcpy_check(memcpy_neon_ld2, str1, str2, MEMCPY_MEMSIZE);
+		(void)memmove_check(memmove, str3 + 1, str3, MEMCPY_MEMSIZE - 1);
+		(void)memcpy_check(memcpy_neon_ld2, str3, str1, MEMCPY_MEMSIZE);
+		(void)memmove_check(memmove, str3 + 64, str3, MEMCPY_MEMSIZE - 64);
+	}
+}
+#endif
+
 #if defined(HAVE_BUILTIN_MEMCPY) &&	\
     defined(HAVE_BUILTIN_MEMMOVE)
 static void *stress_builtin_memcpy_wrapper(void *restrict dst, const void *restrict src, size_t n)
@@ -290,6 +431,11 @@ static const stress_memcpy_method_info_t stress_memcpy_methods[] = {
 	{ "naive_o1",	stress_memcpy_naive_o1 },
 	{ "naive_o2",	stress_memcpy_naive_o2 },
 	{ "naive_o3",	stress_memcpy_naive_o3 },
+#if defined(STRESS_ARCH_ARM)
+	{ "ldp-stp",	stress_memcpy_ldp_stp },
+	{ "neon",	stress_memcpy_neon },
+	{ "neon-ld2",	stress_memcpy_neon_ld2 },
+#endif
 };
 
 /*

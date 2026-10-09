@@ -6089,7 +6089,7 @@ start N workers that copies data to and from a buffer using
 memcpy(3) and then move the data in the buffer with memmove(3) with 3
 different alignments. This will exercise the data cache and memory copying.
 .TP
-.B \-\-memcpy\-method [ all | libc | builtin | naive | naive_o0 .. naive_o3 ]
+.B \-\-memcpy\-method [ all | libc | builtin | naive | naive_o0 .. naive_o3 | ldp\-stp | neon | neon\-ld2 ]
 specify a memcpy copying method. Available memcpy methods are described
 as follows:
 .sp
@@ -6124,6 +6124,17 @@ T}
 naive_o3	T{
 use optimized na\[:i]ve byte by byte copying and memory moving build with -O3
 optimization and where possible use CPU specific optimizations
+T}
+ldp\-stp	T{
+arm64 only: copy with ldp/stp 128\-bit register pair loads and stores,
+exercising the LSU pair path
+T}
+neon	T{
+arm64 only: copy with 128\-bit NEON q\-register loads and stores
+T}
+neon\-ld2	T{
+arm64 only: copy with interleaved vld2q/vst2q two\-register loads and
+stores, exercising multi\-issue memory access
 T}
 .TE
 .TP
