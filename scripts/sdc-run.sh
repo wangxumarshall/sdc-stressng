@@ -323,34 +323,39 @@ run_full()
 }
 
 #  ---------------------------------------------------------------------------
-#  Mode: excite - pure excitation, no verify sentinels
+#  Mode: excite - pure excitation, time-slice station rotation (2.0)
 #
 #  The excitation-first mode: every cycle goes to load.  No --verify
 #  is attached (detection is SDCShield's job - run it alongside via
-#  --sdcshield).  The recipe widens full's compute mix with the crypto
-#  and memory-shape stressors:
+#  --sdcshield).  Instead of stacking 8 stressors on the same cores
+#  (the 1.0 dilution problem), each station gets the WHOLE machine for
+#  its slice: one deep-pressure stressor at N_PHYSICAL workers while
+#  varyload keeps the machine-wide concurrency condition alive.
 #
-#    cpu         x N_PHYS  cpu-method all (ALU/branch method mix)
-#    fma         x N_PHYS  vector pipelines (SVE2 kernels where present)
-#    armcrypto   x N_PHYS  crypto engines (13 methods)
-#    operand-var x N_PHYS  shaped operands on real compute paths (its
-#                built-in golden replay is intrinsic to the stressor;
-#                the shaping itself is the excitation)
-#    addrspace   x 2       MMU/TLB address shapes
-#    memrate     x 2       LSU + bandwalk-shaped writes
-#    vm          x 2       VM subsystem + dense random offsets
-#    varyload    x 64      di/dt load steps
+#    station        deep pressure (whole machine, one at a time)
+#    cpu            cpu-method all (71-method ALU/branch mix)
+#    fma            vector pipelines (SVE2 kernels where present)
+#    armcrypto      13 crypto engines
+#    lsupress       LSU instruction spectrum + VA random walk
+#    operand-var    shaped operands on real compute paths
+#    memcpy-<v>     one instruction-variant copy engine per pass
+#    addrspace      MMU/TLB address shapes
+#    memrate        LSU + bandwalk-shaped writes
 #
+#  EXCITE_SLICE (minutes, default 10) sets the station duration.
 #  rc=0 here means "excitation completed", NOT "machine healthy".
 #  ---------------------------------------------------------------------------
 run_excite()
 {
 	local out=${OUT:-sdc_excite_${TS}}
 	local dur=${DUR:-7200}
+	local slice=$(( ${EXCITE_SLICE:-10} * 60 ))
+	local start=$SECONDS
 	local rc=0
+
 	mkdir -p "$out"
 
-	echo "=== mode excite: pure excitation ${dur}s, no verify sentinels (detection: SDCShield) ==="
+	echo "=== mode excite 2.0: station rotation, slice=${slice}s, ${dur}s total (detection: SDCShield) ==="
 	[ -n "$SDCSHIELD_ARG" ] && echo "                SDCShield: $SDCSHIELD_ARG"
 
 	if [ "$PREHEAT" -gt 0 ]; then
@@ -362,44 +367,78 @@ run_excite()
 	fi
 
 	{
-		echo "mode=excite duration=${dur}s physical=$N_PHYSICAL logical=$N_LOGICAL smt=$SMT"
+		echo "mode=excite2 duration=${dur}s slice=${slice}s physical=$N_PHYSICAL logical=$N_LOGICAL smt=$SMT"
 		echo "sve2=$HAS_SVE2 ls64=$HAS_LS64 crc32=$HAS_CRC32"
 		echo "isolated=$isolated_list offline=$offline_list"
 	} > "$out/topology.txt"
 	local total_mem_mb
 	total_mem_mb=$(awk '/^MemTotal:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 262144)
 
-	"$NG" --cpu "$N_PHYSICAL" --taskset physical --cpu-method all \
-	      --fma "$N_PHYSICAL" \
-	      --armcrypto "$N_PHYSICAL" \
-	      --operand-var "$N_PHYSICAL" \
-	      --addrspace 2 --addrspace-bytes "$(( total_mem_mb / 4 ))m" \
-	      --memrate 2 --memrate-write-pattern bandwalk \
-	      --vm 2 --vm-method rand-offset \
-	      --varyload 64 --varyload-ms 20 \
+	#  station table: feature-gated deep-pressure stressors
+	local -a STATIONS=( cpu fma armcrypto lsupress operand-var
+			    memcpy-ldp-stp memcpy-neon addrspace memrate )
+	[ "$HAS_SVE2" -eq 1 ] && STATIONS+=( memcpy-sve lsupress-sve )
+	local station_idx=0
+
+	#  background: varyload di/dt + observation for the whole window
+	"$NG" --varyload 64 --varyload-ms 20 \
 	      --interrupts -K --thermalstat 30 \
-	      --metrics -Y "$out/A_excite.yaml" -t "${dur}s" \
-	      > "$out/A_excite.log" 2>&1 &
-	local ng_pid=$!
-	echo "stress-ng pid $ng_pid, log $out/A_excite.log"
+	      -t "${dur}s" > "$out/bg-varyload.log" 2>&1 &
+	local bg_pid=$!
+
+	run_station() {
+		local main="$1"
+		local rem=$(( dur - (SECONDS - start) ))
+		local t=$slice
+
+		[ "$rem" -lt "$t" ] && t=$rem
+		[ "$t" -le 0 ] && return 0
+		case "$main" in
+		cpu)		"$NG" --cpu "$N_PHYSICAL" --taskset physical --cpu-method all -t "${t}s" ;;
+		fma)		"$NG" --fma "$N_PHYSICAL" -t "${t}s" ;;
+		armcrypto)	"$NG" --armcrypto "$N_PHYSICAL" -t "${t}s" ;;
+		lsupress)	"$NG" --lsupress "$N_PHYSICAL" -t "${t}s" ;;
+		lsupress-sve)	"$NG" --lsupress "$N_PHYSICAL" --lsupress-method all --lsupress-va-size 32g --lsupress-window 512m -t "${t}s" ;;
+		operand-var)	"$NG" --operand-var "$N_PHYSICAL" -t "${t}s" ;;
+		memcpy-ldp-stp)	"$NG" --memcpy "$N_PHYSICAL" --memcpy-method ldp-stp -t "${t}s" ;;
+		memcpy-neon)	"$NG" --memcpy "$N_PHYSICAL" --memcpy-method neon-ld2 -t "${t}s" ;;
+		memcpy-sve)	"$NG" --memcpy "$N_PHYSICAL" --memcpy-method sve -t "${t}s" ;;
+		addrspace)	"$NG" --addrspace 4 --addrspace-bytes "$(( total_mem_mb / 8 ))m" -t "${t}s" ;;
+		memrate)	"$NG" --memrate "$N_PHYSICAL" --memrate-write-pattern bandwalk -t "${t}s" ;;
+		esac
+	}
 
 	if [ -n "$SDCSHIELD_ARG" ]; then
 		# shellcheck disable=SC2086
 		timeout --signal=TERM --kill-after=30 $((dur + 120)) \
 			$SDCSHIELD_ARG -T forever -t "${dur}s" -Y -F \
 			-e 'zstd19' -e 'zlib*' -e 'fma*' -e 'crc32' -e 'isal_crc*' \
-			> "$out/sdcshield.log" 2>&1
+			> "$out/sdcshield.log" 2>&1 &
+		local shield_pid=$!
+		while [ $(( SECONDS - start )) -lt "$dur" ]; do
+			local main="${STATIONS[station_idx % ${#STATIONS[@]}]}"
+			echo "=== station: $main ($(( (SECONDS - start) / 60 ))min elapsed) ==="
+			run_station "$main" > "$out/station_${main}.log" 2>&1
+			station_idx=$(( station_idx + 1 ))
+		done
+		kill "$bg_pid" 2>/dev/null || true
+		wait "$bg_pid" 2>/dev/null || true
+		wait "$shield_pid"
 		rc=$?
 		echo "SDCShield exit: $rc"
-		kill "$ng_pid" 2>/dev/null || true
-		wait "$ng_pid" 2>/dev/null || true
 	else
-		wait "$ng_pid"
-		rc=$?
+		while [ $(( SECONDS - start )) -lt "$dur" ]; do
+			local main="${STATIONS[station_idx % ${#STATIONS[@]}]}"
+			echo "=== station: $main ($(( (SECONDS - start) / 60 ))min elapsed) ==="
+			run_station "$main" > "$out/station_${main}.log" 2>&1
+			station_idx=$(( station_idx + 1 ))
+		done
+		kill "$bg_pid" 2>/dev/null || true
+		wait "$bg_pid" 2>/dev/null || true
 	fi
 
 	echo "=== excite done (rc=$rc), results in $out ==="
-	echo "    (rc=0 = excitation completed, not a health verdict - see sdcshield.log / A_excite.yaml)"
+	echo "    (rc=0 = excitation completed, not a health verdict - see sdcshield.log / station_*.log)"
 	return $rc
 }
 
