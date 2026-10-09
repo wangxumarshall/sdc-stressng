@@ -104,17 +104,16 @@
 docs/superpowers/specs/2026-10-09-lsu-instruction-spectrum-design.md——
 待用户审阅 spec 后进 writing-plans 出实施计划（P1-P8）。
 
-### Phase 11: LSU 全指令谱 SDC 激发引擎（2026-10-09，architectural 路径） — in_progress
-用户需求：①不同指令实现的 load/store 压测（整数/浮点/向量/SVE/SVE2/原子/ls64）；
-②不同指令实现的 memcpy（挂上游 --memcpy-method）；③copy/load/store 混合模板
-（"2load+ALU+load+store"）；④访存"疯狂大、高频"；⑤地址在最大 VA 空间全范围随机游走。
-- [x] brainstorming（superpowers skill）：分类 architectural；上下文探索（上游 memcpy 已有方法表=挂点）
-- [x] 载体决策（用户）：双层结构 + 混合模板重点；asm 精确+向量变量混合实现
-- [x] 设计修订（用户强化）：地址引擎（NORESERVE 大映射 + 工作集窗口迁移 + MADV_DONTNEED + 4 游走模式）
-- [x] 分节设计呈现（§1-§6）+ 用户批准（"认可"）
-- [x] spec 写入 docs/superpowers/specs/2026-10-09-lsu-instruction-spectrum-design.md + commit
-- [ ] 用户审阅 spec
-- [ ] writing-plans 出实施计划（P1-P8）
+### Phase 11: LSU 全指令谱 SDC 激发引擎（2026-10-09，executing-plans native 模式） — in_progress
+**Ledger**（plan: docs/superpowers/plans/2026-10-09-lsu-instruction-spectrum.md，11 tasks；commit 即进度）：
+- [x] T1 memcpy NEON 族（4452881d7）：ldp-stp/neon/neon-ld2；真 bug=asm "+r" post-inc 与 dest 参数寄存器 coalesce 毁返回值（改只读 "r"+C 级推进）；**教训：验收 grep 必含 fail: 行**（"failed:0" 假绿）
+- [x] T2 memcpy sve/sve-gather/ls64（722d5673c）：真 bug×2=SVE sizeless 禁指针算术（普通指针推进+svld1_u64(addr)）；skip 块插在 func 赋值前（反汇编定位 stress_setting_get 顺序，移到 func 解析后）；gather=Ruling"契约+叠加 gather pass"；SVE 真硬件验证走 CI 22.03+（QEMU 环境已丢，重建记 backlog）；ld64b=0 属编译门控预期
+- [x] T3 lsupress 骨架（本 commit）：方法表 4 项 + load/store/copy-int64；真 bug=**漏 include core-mmap.h → stress_mmap_populate 隐式 int 声明 → buf 符号扩展污染 SIGSEGV**（strace syscall 合法 vs C 层污染定位）；API 对齐=classifier/const/bitgen_seed/stress_setting_get；OPS 枚举为 STRESSOR_ELEM 强制；方法表经 core-opts.c/h+core-stressors.h MACRO 接线
+- [ ] T4 地址引擎（NORESERVE+窗口迁移+uniform 游走+RSS 硬顶）
+- [ ] T5 mix 模板族（2l-alu-1s 等 asm 内核）⑥T6 向量族 ⑦T7 原子族 ⑧T8 游走扩展 ⑨T9 verify+注入 ⑩T10 excite2.0 ⑪T11 文档/CI
+**环境备忘**：gcc12 本机；CI dispatch 已发（sve 方法真硬件验证）；QEMU 缺失
+
+### Phase 11 前置（brainstorming/spec/plan，均 complete）
 
 ### Phase 10: Release 自包含包（2026-10-09 用户需求：含依赖库 + 一键式激发脚本） — complete
 **设计决策 D10-1**：不用 STATIC=1（会打破"发布=CI 全量测试的同一二进制"不变量，且静态库缺失使

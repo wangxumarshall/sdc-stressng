@@ -839,6 +839,9 @@ const struct option stress_long_options[] = {
 	{ "memhotplug-mmap",	0,	NULL,	OPT_memhotplug_mmap },
 	{ "memhotplug-ops",	1,	NULL,	OPT_memhotplug_ops },
 
+	{ "lsupress",		1,	NULL,	OPT_lsupress },
+	{ "lsupress-method",	1,	NULL,	OPT_lsupress_method },
+	{ "lsupress-ops",	1,	NULL,	OPT_lsupress_ops },
 	{ "memrate",		1,	NULL,	OPT_memrate },
 	{ "memrate-bytes",	1,	NULL,	OPT_memrate_bytes },
 	{ "memrate-discontiguous", 0,	NULL,	OPT_memrate_discontiguous },

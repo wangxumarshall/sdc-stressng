@@ -6155,6 +6155,23 @@ T}
 stop memcpy stress workers after N bogo memcpy operations.
 .RE
 .TP
+.B Load/store unit (lsupress) stressor
+.RS 5
+.TQ
+.B \-\-lsupress N
+start N workers exercising the arm64 load/store unit across the
+instruction spectrum (integer, floating point, NEON, SVE load, store,
+copy and mixed dataflow templates). arm64 only; other architectures
+run it as unimplemented.
+.TQ
+.B \-\-lsupress\-method M
+select the lsupress method: all, load\-int64, store\-int64, copy\-int64.
+More instruction-spectrum methods arrive in later commits.
+.TQ
+.B \-\-lsupress\-ops N
+stop after N lsupress bogo operations.
+.RE
+.TP
 .B Anonymous file (memfd) stressor
 .RS 5
 .TQ

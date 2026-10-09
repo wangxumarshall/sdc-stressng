@@ -196,6 +196,7 @@
 	MACRO(memcpy)		\
 	MACRO(memfd)		\
 	MACRO(memhotplug)	\
+	MACRO(lsupress)		\
 	MACRO(memrate)		\
 	MACRO(memthrash)	\
 	MACRO(mergesort)	\

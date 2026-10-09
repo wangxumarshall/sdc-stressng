@@ -943,6 +943,9 @@ typedef enum {
 	OPT_memhotplug_mmap,
 	OPT_memhotplug_ops,
 
+	OPT_lsupress,
+	OPT_lsupress_method,
+	OPT_lsupress_ops,
 	OPT_memrate,
 	OPT_memrate_bytes,
 	OPT_memrate_discontiguous,

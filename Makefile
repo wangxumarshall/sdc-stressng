@@ -692,6 +692,7 @@ STRESS_SRC = \
 	stress-memcpy.c \
 	stress-memfd.c \
 	stress-memhotplug.c \
+	stress-lsupress.c \
 	stress-memrate.c \
 	stress-memthrash.c \
 	stress-mergesort.c \
