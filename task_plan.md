@@ -100,9 +100,21 @@
 
 ## Next Step
 
-**无未决项**。Phase 10 闭环：v0.22.01-sdc.1 Release 已上线 **30 个自包含包 assets**
-（15 镜像 × tar.gz+sha256）+ ghcr docker :stable。后续候选：excite 深度增强
-（分核分组/时间片轮换，见用户压力评估讨论）+ excitation-guide gap 路线图。
+**Phase 11（第十五轮）brainstorming 完成、设计已获用户批准**：spec 已写入
+docs/superpowers/specs/2026-10-09-lsu-instruction-spectrum-design.md——
+待用户审阅 spec 后进 writing-plans 出实施计划（P1-P8）。
+
+### Phase 11: LSU 全指令谱 SDC 激发引擎（2026-10-09，architectural 路径） — in_progress
+用户需求：①不同指令实现的 load/store 压测（整数/浮点/向量/SVE/SVE2/原子/ls64）；
+②不同指令实现的 memcpy（挂上游 --memcpy-method）；③copy/load/store 混合模板
+（"2load+ALU+load+store"）；④访存"疯狂大、高频"；⑤地址在最大 VA 空间全范围随机游走。
+- [x] brainstorming（superpowers skill）：分类 architectural；上下文探索（上游 memcpy 已有方法表=挂点）
+- [x] 载体决策（用户）：双层结构 + 混合模板重点；asm 精确+向量变量混合实现
+- [x] 设计修订（用户强化）：地址引擎（NORESERVE 大映射 + 工作集窗口迁移 + MADV_DONTNEED + 4 游走模式）
+- [x] 分节设计呈现（§1-§6）+ 用户批准（"认可"）
+- [x] spec 写入 docs/superpowers/specs/2026-10-09-lsu-instruction-spectrum-design.md + commit
+- [ ] 用户审阅 spec
+- [ ] writing-plans 出实施计划（P1-P8）
 
 ### Phase 10: Release 自包含包（2026-10-09 用户需求：含依赖库 + 一键式激发脚本） — complete
 **设计决策 D10-1**：不用 STATIC=1（会打破"发布=CI 全量测试的同一二进制"不变量，且静态库缺失使
