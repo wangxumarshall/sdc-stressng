@@ -110,8 +110,15 @@ docs/superpowers/specs/2026-10-09-lsu-instruction-spectrum-design.md——
 - [x] T2 memcpy sve/sve-gather/ls64（722d5673c）：真 bug×2=SVE sizeless 禁指针算术（普通指针推进+svld1_u64(addr)）；skip 块插在 func 赋值前（反汇编定位 stress_setting_get 顺序，移到 func 解析后）；gather=Ruling"契约+叠加 gather pass"；SVE 真硬件验证走 CI 22.03+（QEMU 环境已丢，重建记 backlog）；ld64b=0 属编译门控预期
 - [x] T3 lsupress 骨架（本 commit）：方法表 4 项 + load/store/copy-int64；真 bug=**漏 include core-mmap.h → stress_mmap_populate 隐式 int 声明 → buf 符号扩展污染 SIGSEGV**（strace syscall 合法 vs C 层污染定位）；API 对齐=classifier/const/bitgen_seed/stress_setting_get；OPS 枚举为 STRESSOR_ELEM 强制；方法表经 core-opts.c/h+core-stressors.h MACRO 接线
 - [x] T4 地址引擎（本 commit）：NORESERVE 100G 试探收缩 + xorshift64* 窗口迁移 + MADV_DONTNEED；**合同修正（Ruling）**：方法内核改单遍处理 buf_words 即返回（原 do-while 自循环导致 func 永不返回、迁移仅 1 次）——循环/迁移责任归主函数 do-while；实测 madvise **5950 次/20s**（~300 迁移/s 疯狂游走）；RSS 稳态 9MB<<64MB 窗口（DONTNEED 回收与写入平衡，硬顶 PASS）；load 方法零页共享（RSS~0、TLB 压力保留）
-- [ ] T5 mix 模板族（2l-alu-1s 等 asm 内核）⑥T6 向量族 ⑦T7 原子族 ⑧T8 游走扩展 ⑨T9 verify+注入 ⑩T10 excite2.0 ⑪T11 文档/CI
-**环境备忘**：gcc12 本机；CI dispatch 已发（sve 方法真硬件验证）；QEMU 缺失
+- [x] T5 mix 模板族（55be42322）：mix-2l-alu-1s 手写 asm 恰好 ldr,ldr,add,ldr,add,str
+- [x] T6 向量族（92dc919c5）：11 方法（int128/fp64/neon load-store/zva/fma + SVE 5 项 HWCAP 门）；真 bug=include 块提前关主门控
+- [x] T7 原子族（cba67e47e）：excl-pair（ldxr/stxr）/lse-rmw（armv8.1 target 属性）/ls64-copy（编译+运行双门）；asm 操作数号错+ldadd 需 target 属性两个编译教训
+- [x] T8 游走扩展（163ba0e40）：uniform/bitgen（TLB 位段）/va-bit/near-far + hugepage 回退；align 选项 YAGNI 降级 backlog
+- [x] T9 verify+注入（e8e43e24d）：store-int64=per-address 哈希、--verify 页采样+位级诊断；**故障注入位 45 被精确抓**；Ruling=精确校验仅限 store-int64（copy/zva/mix 无 f 不变式）；教训=注入还原用 git checkout 洗掉未提交工作（改用 stash-verify-drop）
+- [x] T10 excite 2.0（8074f39a0）：站点轮换制（每站全机深压+varyload 常驻）；125s E2E 三站轮换验证
+- [x] T11 文档/CI（260b0a89e）：excitation-guide 指令谱行+gap 更新、CLAUDE.md 能力地图、CHANGELOG；**CI dispatch 204**（15 镜像验证进行中——lsupress+memcpy 变体自动进 method sweep）
+
+### 11-task 计划完成：11/11。CI 15 镜像结果=最终验收门（cron 检查）
 
 ### Phase 11 前置（brainstorming/spec/plan，均 complete）
 
