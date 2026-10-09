@@ -312,7 +312,12 @@ jobs:
       - name: Publish binary to GitHub Release
         if: github.event_name == 'release'
         env:
-          REL_ASSETS_URL: ${{ github.event.release.assets_url }}
+          # upload_url (uploads.github.com), NOT assets_url (the GET list
+          # endpoint on api.github.com — POSTing there returns 404 and
+          # curl -sf exits 22, which killed all 15 jobs on the first
+          # release attempt). The {?name,label} template suffix must be
+          # stripped before appending ?name=.
+          REL_UPLOAD_URL: ${{ github.event.release.upload_url }}
           REL_TOKEN: ${{ github.token }}
         run: |
           set -eu
@@ -336,12 +341,13 @@ jobs:
           [ -n "$GLIBC_MIN" ] && echo "Minimum glibc required: ${GLIBC_MIN#GLIBC_}" >> "$PKG/README.md"
           tar -czf "$ASSET" "$PKG"
           sha256sum "$ASSET" > "${ASSET}.sha256"
+          UPLOAD_URL="${REL_UPLOAD_URL%%\{*}"
           for f in "$ASSET" "${ASSET}.sha256"; do
             curl -sf -X POST \
               -H "Authorization: token ${REL_TOKEN}" \
               -H "Content-Type: application/octet-stream" \
               --data-binary "@$f" \
-              "${REL_ASSETS_URL}?name=$f" > /dev/null
+              "${UPLOAD_URL}?name=$f" > /dev/null
             echo "uploaded: $f"
           done
 
