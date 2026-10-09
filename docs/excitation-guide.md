@@ -41,13 +41,14 @@ Rows = levers, columns = hardware pathways. `●` covered, `◐` partial,
 
 | Lever ↓ / Pathway → | ALU / branch | Vector (SVE2/NEON) | Crypto | Atomics (LSE) | LSU (ld/st) | Cache hierarchy | MMU / TLB | Interconnect (NUMA) |
 |---|---|---|---|---|---|---|---|---|
-| **Data shape** | ● `--operand-var` 5 methods; cpu seed-unlocked | ● fma/vecfp FP bit synthesis; sve2 golden operands | ● armcrypto 13 methods, live operand streams | ◐ atomic RMW jitter (oracle keeps literals) | ● memrate 4 write patterns; cacheline rand-payload | ● l1cache bitgen streams; cache write path bitgen | ◐ vm rand-offset bitgen payloads | ○ |
-| **Address shape** | ◐ misalign-huge (addrspace) | — | — | — | ● addrspace misaligned-huge / dense offsets | ● addrspace malloc-giant / mixed orders | ● addrspace va-bit-walk / huge-random-fixed / guarded-holes | ◐ cross-socket `path -c <node1>` |
-| **Concurrency** | ● `full`: 2 workers/core via `--taskset physical` | ● same | ● same | ● same | ● same | ● same | ● same | ● full spans all nodes |
+| **Data shape** | ● `--operand-var` 5 methods; cpu seed-unlocked | ● fma/vecfp FP bit synthesis; sve2 golden operands | ● armcrypto 13 methods, live operand streams | ◐ atomic RMW jitter (oracle keeps literals) | ● lsupress 20-method spectrum (store = per-address hash; mix templates 2load+ALU+load+store); memrate 4 write patterns; cacheline rand-payload | ● l1cache bitgen streams; cache write path bitgen | ◐ vm rand-offset bitgen payloads | ○ |
+| **Address shape** | ◐ misalign-huge (addrspace) | — | — | — | ● lsupress VA engine: 100GB NORESERVE map, migrating window, 4 walk modes (uniform/bitgen/va-bit/near-far); addrspace misaligned-huge / dense offsets | ● addrspace malloc-giant / mixed orders | ● lsupress VA walk (TLB-tag bit-band sweeps); addrspace va-bit-walk / huge-random-fixed / guarded-holes | ◐ cross-socket `path -c <node1>` |
+| **Instruction spectrum** | ◐ mix-2l-alu-1s (load-use forwarding) | ● load/store/copy/mix-fma across NEON q and full-VL SVE; memcpy ldp-stp/neon/neon-ld2/sve/sve-gather/ls64 | ● (armcrypto covers) | ● lsupress excl-pair (ldxr/stxr), lse-rmw (ldadd), ls64-copy (ld64b/st64b) | ● lsupress load-int64/128, load-fp64, DC ZVA (store-zva) | ◐ (collateral) | ◐ (collateral) | ○ |
+| **Concurrency** | ● `excite 2.0`: time-slice stations, whole machine per station | ● same | ● same | ● same | ● same | ● same | ● same | ● excite spans all nodes |
 | **SMT contention** | ● `pair` fma×cpu | ● `pair` fma×fma | ◐ `pair` armcrypto×fma | ○ | ○ | ● `pair` cacheline×cacheline | ○ | ○ |
 | **Residual heat** | ◐ preheat collateral | ● preheat: all-core fma+vecfp | ◐ collateral | ◐ collateral | ◐ collateral | ◐ collateral | ◐ collateral | ◐ collateral |
-| **di/dt steps** | ● varyload modulates all workers | ● same | ● same | ● same | ● same | ● same | ● same | ● same |
-| **Long soak** | ● `-t` hours, non-repeating bitgen streams | ● same | ● same | ● same | ● same | ● same | ● same | ● same |
+| **di/dt steps** | ● varyload modulates all workers (standing background in excite 2.0) | ● same | ● same | ● same | ● same | ● same | ● same | ● same |
+| **Long soak** | ● `-t` hours, non-repeating bitgen/hash streams | ● same | ● same | ● same | ● same | ● same | ● same | ● same |
 | **Power/thermal observation** | `--rapl`/`--raplstat` hwmon telemetry (measurement, not a lever) | | | | | | | |
 
 ## Reading the matrix
@@ -61,11 +62,12 @@ Rows = levers, columns = hardware pathways. `●` covered, `◐` partial,
 
 | Gap | Why it matters | Candidate approach |
 |---|---|---|
-| Interconnect-dedicated excitation (L3-instance and cross-socket coherence traffic shaping) | L3 is split in 24 instances on the reference 950; coherence corner traffic is a documented low-coverage area (L2C 40% / LSU 54% coverage in the fleet model) | NUMA-aware ping-pong stressor with bitgen payloads on shared lines |
-| lrcpc/ilrcpc (RCpc atomics) pathway | available on target hardware, unused | new stressor or atomic method |
+| Interconnect-dedicated excitation (L3-instance and cross-socket coherence traffic shaping) | L3 is split in 24 instances on the reference 950; coherence corner traffic is a documented low-coverage area | NUMA-aware ping-pong stressor with bitgen payloads on shared lines |
+| lrcpc/ilrcpc (RCpc atomics) pathway | available on target hardware, unused | lsupress method (same target-attribute pattern as lse-rmw) |
 | SMT × MMU/TLB and SMT × atomics combinations | pair matrix covers vector/cpu/cache only | extend `pair` COMBOS |
 | OoO scheduler pressure with shaped dependencies | reorder-buffer corner cases under operand variation | dependency-chain stressor with bitgen branch/operand shapes |
 | Real-machine bitgen calibration loop | window/density parameters were tuned statistically, not against real flip distributions | run `sdc-flip-collect.sh` on a machine with observed SDC, feed back `--bitgen-band-*` |
+| excite station for SVE-less walks on 920-class hosts | lsupress-sve/memcpy-sve stations only appear on SVE2 machines (correct); a 920-native deep LSU station beyond lsupress-all is thin | add more base-page methods once field data arrives |
 
 ## Mode recipe audit
 

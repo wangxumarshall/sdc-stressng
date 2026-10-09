@@ -6,6 +6,31 @@ upstream-only items are not itemized here — consult the upstream git history.
 
 ## [0.22.01-sdc.1] — 2026-10-08
 
+LSU instruction-spectrum engine (same version line):
+
+- `--memcpy-method` gains six hand-written arm64 copy kernels:
+  ldp-stp (128-bit register pairs), neon (q-register), neon-ld2
+  (interleaved two-register), sve (full-VL), sve-gather (contiguous copy
+  plus a strided gather pass), ls64 (64-byte atomic blocks, compile-gated)
+- new `--lsupress` stressor — the LSU instruction spectrum over a
+  maximum-VA random-walk address engine:
+  - 20 methods across int/FP/NEON/SVE/atomics, including the mixed
+    dataflow templates (mix-2l-alu-1s = the "2 loads + ALU + load +
+    store" exact-instruction kernel), gather, DC ZVA, exclusive pairs
+    and LSE RMW
+  - address engine: per-worker 100GB (default) MAP_NORESERVE map,
+    migrating working window with MADV_DONTNEED (physical footprint
+    pinned near the window, page-table churn by construction), four
+    walk modes (uniform / bitgen TLB-tag bit-band / va-bit / near-far),
+    optional 2MB/1GB hugepage maps with fallback
+  - verification: store-int64 writes per-address deterministic hash
+    values; --verify samples the window per page against the oracle with
+    bit-level diagnostics; fault-injection drill passed (bit 45 caught)
+- excite 2.0: time-slice station rotation replaces the 8-stressor stack
+  (each station gets the whole machine for its slice; varyload di/dt is
+  the standing background), lsupress and memcpy variants join the
+  feature-gated station table
+
 Upstream sync #1 under the per-release policy
 ([docs/upstream-sync.md](docs/upstream-sync.md)): merged upstream V0.22.01
 (4 commits — core-cpu-cache debug-message cleanup, version bump, debian

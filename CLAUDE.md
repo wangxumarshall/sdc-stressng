@@ -46,7 +46,9 @@ make clean && make -j$(nproc)   # 本机 gcc 12 即可；make clean 在拉取后
 | ARM 专项 | `--ls64`（64B 原子访存）、`--rdrand`（RNDR）、`--tsc`（CNTVCT_EL0）、`--cache-flush/--cache-clwb`（DC CIVAC/CVAC）、`--memrate-method write64zva`（DC ZVA）、`--taskset physical`（SMT 感知）、`--rapl`（hwmon 功率） |
 | memrate 写模式 | `--memrate-write-pattern 0xaa|random|bandwalk|complement` |
 | vm 随机偏移 | `--vm-method rand-offset`（无放回 Fisher-Yates + bitgen 填充/同序校验） |
-| SDC 编排 | `scripts/sdc-run.sh excite\|full\|scan\|path\|pair\|abtest\|all`（拓扑自推导；**excite 纯激发**=零 verify 最宽组合；full 含 verify 哨兵 + varyload di/dt + --preheat 热浸润；scan 逐物理核 + --keep-bg 背景压；pair SMT 争用矩阵；abtest 双构建 A/B） |
+| LSU 指令谱压测 | `--lsupress`（20 方法：load int64/128/fp64/neon/sve/gather、store neon/sve/zva、copy、mix 2load+ALU+load+store、fma 模板、excl/lse/ls64 原子；`--lsupress-va-size/--window/--walk/--huge` 控制 100GB NORESERVE VA 游走引擎，4 游走模式含 bitgen TLB 位段；verify=per-address 确定性哈希+位级诊断） |
+| memcpy 指令变体 | `--memcpy-method ldp-stp/neon/neon-ld2/sve/sve-gather/ls64`（手写内核挂上游方法表，memcpy_check 对拍） |
+| SDC 编排 | `scripts/sdc-run.sh excite\|full\|scan\|path\|pair\|abtest\|all`（拓扑自推导；**excite 2.0 纯激发**=时间片轮岗站点制，每站全机深压单通路 + varyload 常驻；full 含 verify 哨兵 + --preheat 热浸润；scan 逐物理核 + --keep-bg 背景压；pair SMT 争用矩阵；abtest 双构建 A/B） |
 | 位级 verify 诊断 | fma/vecfp/matrix 失配输出：元素下标 + expected/actual + 翻转位数 + xor 掩码 |
 
 ## 上游同步（已定策略，全文见 docs/upstream-sync.md）
