@@ -6089,7 +6089,7 @@ start N workers that copies data to and from a buffer using
 memcpy(3) and then move the data in the buffer with memmove(3) with 3
 different alignments. This will exercise the data cache and memory copying.
 .TP
-.B \-\-memcpy\-method [ all | libc | builtin | naive | naive_o0 .. naive_o3 | ldp\-stp | neon | neon\-ld2 ]
+.B \-\-memcpy\-method [ all | libc | builtin | naive | naive_o0 .. naive_o3 | ldp\-stp | neon | neon\-ld2 | sve | sve\-gather | ls64 ]
 specify a memcpy copying method. Available memcpy methods are described
 as follows:
 .sp
@@ -6135,6 +6135,19 @@ T}
 neon\-ld2	T{
 arm64 only: copy with interleaved vld2q/vst2q two\-register loads and
 stores, exercising multi\-issue memory access
+T}
+sve	T{
+arm64 only: copy with full vector\-length SVE ld1d/st1d; requires SVE
+hardware, otherwise skipped
+T}
+sve\-gather	T{
+arm64 only: contiguous ld1d/st1d copy plus a strided 64\-byte gather
+pass over the source, exercising the SVE gather LSU path; requires SVE
+hardware, otherwise skipped
+T}
+ls64	T{
+arm64 only: copy with 64\-byte atomic ld64b/st64b; only compiled and
+available on ls64\-capable toolchain and hardware
 T}
 .TE
 .TP

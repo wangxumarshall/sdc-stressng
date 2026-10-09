@@ -297,6 +297,159 @@ static NOINLINE void stress_memcpy_neon_ld2(
 		(void)memmove_check(memmove, str3 + 64, str3, MEMCPY_MEMSIZE - 64);
 	}
 }
+
+#if defined(__GNUC__) && __GNUC__ >= 10
+#include <arm_sve.h>
+#include <sys/auxv.h>
+
+static bool memcpy_sve_ok;
+
+static void memcpy_sve_probe(void)
+{
+	memcpy_sve_ok = (getauxval(AT_HWCAP) & HWCAP_SVE) != 0;
+}
+
+__attribute__((target("arch=armv8.2-a+sve")))
+static NOINLINE void *memcpy_sve(
+	void *dest,
+	const void *src,
+	size_t n)
+{
+	svbool_t pg = svptrue_b64();
+	const uint64_t vl = (uint64_t)svcntd();	/* 64-bit lanes per vector */
+	const size_t vecs = (size_t)(n / (vl * 8));
+	uint64_t *p = (uint64_t *)src;
+	uint64_t *q = (uint64_t *)dest;
+	size_t i;
+
+	/* SVE sizeless types forbid pointer arithmetic: advance plain
+	 * uint64_t pointers and hand svld1/svst1 their addresses */
+	for (i = 0; i < vecs; i++, p += vl, q += vl) {
+		svuint64_t v = svld1_u64(pg, p);
+
+		svst1_u64(pg, q, v);
+	}
+	{
+		const uint8_t *s8 = (const uint8_t *)p;
+		uint8_t *d8 = (uint8_t *)q;
+		const size_t rem = n - vecs * (size_t)vl * 8;
+
+		for (i = 0; i < rem; i++)
+			d8[i] = s8[i];
+	}
+	return dest;
+}
+
+/*
+ *  Gather note: a gather's value is precisely its non-contiguous
+ *  indices, which conflicts with the element-wise memcpy contract
+ *  (dst[i] must equal src[i]).  This method keeps the contract via
+ *  a contiguous ld1d/st1d copy and ADDS a strided 64-byte gather
+ *  pass over the source folded into a consumed checksum, so the
+ *  gather LSU path is exercised without breaking the memcmp oracle.
+ */
+__attribute__((target("arch=armv8.2-a+sve")))
+static NOINLINE void *memcpy_sve_gather(
+	void *dest,
+	const void *src,
+	size_t n)
+{
+	svbool_t pg = svptrue_b64();
+	svuint64_t idx = svindex_u64(0, 8);	/* 64B stride, in elements */
+	svuint64_t acc = svdup_u64(0);
+	const uint64_t vl = (uint64_t)svcntd();
+	const size_t elems = n / 8;
+	const uint64_t *s64 = (const uint64_t *)src;
+	uint64_t k, sink;
+
+	(void)memcpy_sve(dest, src, n);		/* the memcpy contract */
+	for (k = 0; k + (vl - 1) * 8 < elems; k += vl * 8) {
+		svuint64_t v = svld1_gather_u64index_u64(pg, s64 + k, idx);
+
+		acc = sveor_u64_x(pg, acc, v);
+	}
+	sink = svlastb_u64(pg, acc);
+	__asm__ __volatile__ ("" : : "r" (sink) : "memory");	/* consume */
+	return dest;
+}
+
+static NOINLINE void stress_memcpy_sve(
+	uint8_t *str1,
+	uint8_t *str2,
+	uint8_t *str3)
+{
+	int i;
+
+	s_method_name = "sve";
+	for (i = 0; memcpy_okay && (i < MEMCPY_LOOPS); i++) {
+		(void)memcpy_check(memcpy_sve, str3, str2, MEMCPY_MEMSIZE);
+		(void)memcpy_check(memcpy_sve, str2, str3, MEMCPY_MEMSIZE / 2);
+		(void)memcpy_check(memcpy_sve, str1, str2, MEMCPY_MEMSIZE);
+		(void)memmove_check(memmove, str3 + 1, str3, MEMCPY_MEMSIZE - 1);
+		(void)memcpy_check(memcpy_sve, str3, str1, MEMCPY_MEMSIZE);
+		(void)memmove_check(memmove, str3 + 64, str3, MEMCPY_MEMSIZE - 64);
+	}
+}
+
+static NOINLINE void stress_memcpy_sve_gather(
+	uint8_t *str1,
+	uint8_t *str2,
+	uint8_t *str3)
+{
+	int i;
+
+	s_method_name = "sve-gather";
+	for (i = 0; memcpy_okay && (i < MEMCPY_LOOPS); i++) {
+		(void)memcpy_check(memcpy_sve_gather, str3, str2, MEMCPY_MEMSIZE);
+		(void)memcpy_check(memcpy_sve_gather, str2, str3, MEMCPY_MEMSIZE / 2);
+		(void)memcpy_check(memcpy_sve_gather, str1, str2, MEMCPY_MEMSIZE);
+		(void)memmove_check(memmove, str3 + 1, str3, MEMCPY_MEMSIZE - 1);
+		(void)memcpy_check(memcpy_sve_gather, str3, str1, MEMCPY_MEMSIZE);
+		(void)memmove_check(memmove, str3 + 64, str3, MEMCPY_MEMSIZE - 64);
+	}
+}
+#endif
+
+#if defined(__ARM_FEATURE_LS64)
+#include <arm_acle.h>
+
+static NOINLINE OPTIMIZE3 void *memcpy_ls64(
+	void *dest,
+	const void *src,
+	size_t n)
+{
+	uint8_t *d = (uint8_t *)dest;
+	const uint8_t *s = (const uint8_t *)src;
+	size_t i, blocks = n / 64;
+
+	for (i = 0; i < blocks; i++, s += 64, d += 64) {
+		data512_t v = __arm_ld64b(s);
+
+		__arm_st64b(d, v);
+	}
+	for (i = 0; i < (n & 63); i++)
+		d[i] = s[i];
+	return dest;
+}
+
+static NOINLINE void stress_memcpy_ls64(
+	uint8_t *str1,
+	uint8_t *str2,
+	uint8_t *str3)
+{
+	int i;
+
+	s_method_name = "ls64";
+	for (i = 0; memcpy_okay && (i < MEMCPY_LOOPS); i++) {
+		(void)memcpy_check(memcpy_ls64, str3, str2, MEMCPY_MEMSIZE);
+		(void)memcpy_check(memcpy_ls64, str2, str3, MEMCPY_MEMSIZE / 2);
+		(void)memcpy_check(memcpy_ls64, str1, str2, MEMCPY_MEMSIZE);
+		(void)memmove_check(memmove, str3 + 1, str3, MEMCPY_MEMSIZE - 1);
+		(void)memcpy_check(memcpy_ls64, str3, str1, MEMCPY_MEMSIZE);
+		(void)memmove_check(memmove, str3 + 64, str3, MEMCPY_MEMSIZE - 64);
+	}
+}
+#endif
 #endif
 
 #if defined(HAVE_BUILTIN_MEMCPY) &&	\
@@ -436,6 +589,13 @@ static const stress_memcpy_method_info_t stress_memcpy_methods[] = {
 	{ "neon",	stress_memcpy_neon },
 	{ "neon-ld2",	stress_memcpy_neon_ld2 },
 #endif
+#if defined(STRESS_ARCH_ARM) && defined(__GNUC__) && __GNUC__ >= 10
+	{ "sve",	stress_memcpy_sve },
+	{ "sve-gather",	stress_memcpy_sve_gather },
+#endif
+#if defined(__ARM_FEATURE_LS64)
+	{ "ls64",	stress_memcpy_ls64 },
+#endif
 };
 
 /*
@@ -479,6 +639,19 @@ static int stress_memcpy(stress_args_t *args)
 
 	(void)stress_setting_get("memcpy-method", &memcpy_method);
 	func = stress_memcpy_methods[memcpy_method].func;
+
+#if defined(STRESS_ARCH_ARM) && defined(__GNUC__) && __GNUC__ >= 10
+	if (!memcpy_sve_ok)
+		memcpy_sve_probe();
+	if (!memcpy_sve_ok &&
+	    ((func == stress_memcpy_sve) || (func == stress_memcpy_sve_gather))) {
+		(void)munmap(buf, 3 * MEMCPY_MEMSIZE);
+		pr_inf_skip("%s: memcpy-method %s skipped, CPU does not support SVE\n",
+			args->name, s_method_name);
+		return EXIT_NOT_IMPLEMENTED;
+	}
+#endif
+
 	stress_rndbuf(str3, MEMCPY_MEMSIZE);
 
 	stress_proc_state_set(args->name, STRESS_STATE_SYNC_WAIT);
