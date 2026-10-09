@@ -368,6 +368,100 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_mix_neon_fma(
 	stress_bogo_inc(args);
 }
 
+/* ---- atomic method family ------------------------------------------ */
+
+/*  excl-pair: ldxr/stxr exclusive loop, one per cacheline */
+static NOINLINE OPTIMIZE3 void stress_lsupress_excl_pair(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	size_t i;
+	uint64_t v = seed | 1;
+
+	for (i = 0; i < buf_words; i += 8) {	/* one per 64B line */
+		register uint64_t t, ok;
+
+		__asm__ __volatile__ (
+			"1: ldxr %0, [%2]\n"
+			"   add  %0, %0, %3\n"
+			"   stxr %w1, %0, [%2]\n"
+			"   cbnz %w1, 1b"
+			: "=&r" (t), "=&r" (ok)
+			: "r" (buf + i), "r" (v)
+			: "memory");
+		v = t;
+	}
+	stress_bogo_inc(args);
+	__asm__ __volatile__ ("" : : "r" (v) : "memory");
+}
+
+/*  lse-rmw: LSE ldadd read-modify-write (HWCAP_ATOMICS gated at dispatch) */
+__attribute__((target("arch=armv8.1-a")))
+static NOINLINE OPTIMIZE3 void stress_lsupress_lse_rmw(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	size_t i;
+	uint64_t v = seed | 1;
+
+	for (i = 0; i < buf_words; i += 8) {
+		register uint64_t t;
+
+		__asm__ __volatile__ (
+			"ldadd %1, %0, [%2]"
+			: "=r" (t)
+			: "r" (v), "r" (buf + i)
+			: "memory");
+		v = t;
+	}
+	stress_bogo_inc(args);
+	__asm__ __volatile__ ("" : : "r" (v) : "memory");
+}
+
+#if defined(__ARM_FEATURE_LS64)
+#include <arm_acle.h>
+
+#ifndef AT_HWCAP3
+#define AT_HWCAP3		(29)
+#endif
+#define LSUPRESS_HWCAP3_LS64	(1UL << 0)	/* HWCAP3_LS64 */
+#define LSUPRESS_HWCAP2_LS64	(1UL << 15)	/* HWCAP2_LS64 */
+
+static bool lsupress_ls64_ok(void)
+{
+	const unsigned long hwcap2 = getauxval(AT_HWCAP2);
+	const unsigned long hwcap3 = getauxval(AT_HWCAP3);
+
+	return (hwcap2 & LSUPRESS_HWCAP2_LS64) ||
+	       (hwcap3 & LSUPRESS_HWCAP3_LS64);
+}
+
+/*  ls64-copy: 64-byte atomic ld64b/st64b blocks */
+static NOINLINE OPTIMIZE3 void stress_lsupress_ls64_copy(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	const uint8_t *src = (const uint8_t *)buf;
+	uint8_t *dst = (uint8_t *)(buf + buf_words / 2);
+	const size_t blocks = (buf_words * sizeof(uint64_t) / 2) / 64;
+	size_t i;
+
+	(void)seed;
+	for (i = 0; i < blocks; i++, src += 64, dst += 64) {
+		const data512_t v = __arm_ld64b(src);
+
+		__arm_st64b(dst, v);
+	}
+	stress_bogo_inc(args);
+}
+#endif
+
 #if defined(__GNUC__) && __GNUC__ >= 10
 #include <arm_sve.h>
 
@@ -597,6 +691,11 @@ static stress_lsupress_method_info_t lsupress_methods[] = {
 	{ "store-neon",		stress_lsupress_store_neon,	0 },
 	{ "store-zva",		stress_lsupress_store_zva,	0 },
 	{ "mix-neon-fma",	stress_lsupress_mix_neon_fma,	0 },
+	{ "excl-pair",		stress_lsupress_excl_pair,	0 },
+	{ "lse-rmw",		stress_lsupress_lse_rmw,	HWCAP_ATOMICS },
+#if defined(__ARM_FEATURE_LS64)
+	{ "ls64-copy",		stress_lsupress_ls64_copy,	0 },	/* HWCAP2/3 gated in main */
+#endif
 #if defined(__GNUC__) && __GNUC__ >= 10
 	{ "load-sve",		stress_lsupress_load_sve,	HWCAP_SVE },
 	{ "load-sve-gather",	stress_lsupress_load_sve_gather, HWCAP_SVE },
@@ -670,6 +769,14 @@ static int stress_lsupress(stress_args_t *args)
 	}
 
 	func = lsupress_methods[lsupress_method].func;
+
+#if defined(__ARM_FEATURE_LS64)
+	if ((func == stress_lsupress_ls64_copy) && !lsupress_ls64_ok()) {
+		pr_inf_skip("%s: lsupress-method ls64-copy skipped, CPU does not support ls64\n",
+			args->name);
+		return EXIT_NOT_IMPLEMENTED;
+	}
+#endif
 
 	lsupress_engine_init(&engine, lsupress_va_size, lsupress_window, seed);
 	if (engine.used) {
