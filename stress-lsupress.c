@@ -115,6 +115,116 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_copy_int64(
 	stress_bogo_inc(args);
 }
 
+/*
+ *  mix-2l-alu-1s: the user-named dataflow template.  Per 8-word block:
+ *  2 loads, ALU, 1 load, store — exactly ldr,ldr,add,ldr,add,str with
+ *  post-increment addressing (zero non-memory instructions beyond the
+ *  adds).  The "+r" constraints are safe here: sp/dp are per-block
+ *  locals that never carry a value across the asm (unlike the memcpy
+ *  dest-parameter coalescing bug fixed in the ldp-stp variant).
+ *  off rotates 1..7 for misaligned window offsets (int paths only).
+ */
+static NOINLINE OPTIMIZE3 void stress_lsupress_mix_2l_alu_1s(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	uint64_t *src = buf;
+	uint64_t *dst = buf + buf_words / 2;
+	const size_t blocks = buf_words / 16;	/* 8 src + 8 dst words per block */
+	size_t i, off = (size_t)(seed % 7) + 1;
+	uint64_t acc = 0;
+
+	for (i = 0; i < blocks; i++) {
+		register uint64_t x0, x1, x2;
+		const uint64_t *sp = src + (i * 16) + off;
+		uint64_t *dp = dst + (i * 16) + off;
+
+		__asm__ __volatile__ (
+			"ldr %0, [%3], #8\n"
+			"ldr %1, [%3], #8\n"
+			"add %0, %0, %1\n"
+			"ldr %2, [%3], #8\n"
+			"add %0, %0, %2\n"
+			"str %0, [%4], #8"
+			: "=r" (x0), "=r" (x1), "=r" (x2),
+			  "+r" (sp), "+r" (dp)
+			:
+			: "memory");
+		acc ^= x0;
+	}
+	stress_bogo_inc(args);
+	__asm__ __volatile__ ("" : : "r" (acc) : "memory");	/* consume */
+}
+
+/*
+ *  mix-1l-fpu-1s: load + FP compute + store, explicit mul/add only
+ *  (no FMA — keeps the software oracle bit-exact).  FP kernels stay
+ *  window-aligned: a misaligned double access is C-level UB.
+ */
+static NOINLINE OPTIMIZE3 void stress_lsupress_mix_1l_fpu_1s(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	const double *a = (const double *)buf;
+	double *b = (double *)(buf + buf_words / 2);
+	const size_t n = buf_words / 2;
+	const double c = 1.0000000000000002;
+	double acc = 0.0;
+	size_t i;
+
+	(void)seed;
+	for (i = 0; i < n; i++) {
+		const double v = a[i] * c;	/* ldr d / fmul */
+
+		acc += v;			/* fadd */
+		b[i] = acc;			/* str d */
+	}
+	stress_bogo_inc(args);
+	__asm__ __volatile__ ("" : : "r" (acc) : "memory");
+}
+
+/*
+ *  mix-3l-2alu-1s: deeper load concurrency — three loads in flight
+ *  before the first consumer (maximises the LSU queue occupancy).
+ */
+static NOINLINE OPTIMIZE3 void stress_lsupress_mix_3l_2alu_1s(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	uint64_t *src = buf;
+	uint64_t *dst = buf + buf_words / 2;
+	const size_t blocks = buf_words / 16;
+	size_t i, off = (size_t)(seed % 7) + 1;
+	uint64_t acc = 0;
+
+	for (i = 0; i < blocks; i++) {
+		register uint64_t x0, x1, x2;
+		const uint64_t *sp = src + (i * 16) + off;
+		uint64_t *dp = dst + (i * 16) + off;
+
+		__asm__ __volatile__ (
+			"ldr %0, [%3], #8\n"
+			"ldr %1, [%3], #8\n"
+			"ldr %2, [%3], #8\n"
+			"add %0, %0, %1\n"
+			"add %0, %0, %2\n"
+			"str %0, [%4], #8"
+			: "=r" (x0), "=r" (x1), "=r" (x2),
+			  "+r" (sp), "+r" (dp)
+			:
+			: "memory");
+		acc ^= x0;
+	}
+	stress_bogo_inc(args);
+	__asm__ __volatile__ ("" : : "r" (acc) : "memory");
+}
+
 #define LSUPRESS_METHOD_ALL	0
 #define LSUPRESS_BUF_WORDS	(1024 * 1024)	/* 8MB fallback buffer */
 #define LSUPRESS_DEFAULT_VA_SIZE	(100ULL << 30)	/* 100GB NORESERVE map/worker */
@@ -206,6 +316,9 @@ static stress_lsupress_method_info_t lsupress_methods[] = {
 	{ "load-int64",		stress_lsupress_load_int64 },
 	{ "store-int64",	stress_lsupress_store_int64 },
 	{ "copy-int64",		stress_lsupress_copy_int64 },
+	{ "mix-2l-alu-1s",	stress_lsupress_mix_2l_alu_1s },
+	{ "mix-1l-fpu-1s",	stress_lsupress_mix_1l_fpu_1s },
+	{ "mix-3l-2alu-1s",	stress_lsupress_mix_3l_2alu_1s },
 };
 
 static const char *stress_lsupress_method(const size_t i)
