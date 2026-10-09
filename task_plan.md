@@ -100,8 +100,16 @@
 
 ## Next Step
 
-**无未决项**。第十四轮全链闭环 + Phase 8 上游同步 #1 闭环（main = 0.22.01-sdc.1）。
-后续轮次候选：excitation-guide gap 路线图（互联定向/lrcpc/SMT×MMU/OoO）+ 真机窗口。
+**Phase 9 进行中**：Release v0.22.01-sdc.1 已发布，release 事件触发
+multi-os-verify 37873644976（15 镜像全量验证 + **每镜像上传二进制 asset**）+
+release-image 37873644971（docker :stable）。cron 检查 30 assets 到齐后闭环。
+
+### Phase 9: Release 携带 15 镜像二进制（2026-10-08 用户需求） — in_progress
+- [x] multi-os-verify.yml：on 加 release(published)；build-test 加 job 级 contents:write；"Publish binary" 步骤（tar.gz=stress-ng+sdc-run/sdc-report/sdc-scan 脚本 + .sha256，curl 上传 assets_url）插在 pre-sequential 窗口（OCI 约束）；并发安全（每 job 唯一文件名）（commit 21022d6f9）
+- [x] 文档同步：CLAUDE.md 发布流程 / CHANGELOG / README CI 节
+- [x] tag v0.22.01-sdc.1（21022d6f9）+ Release 发布（201，notes 含"released binaries are tested binaries"说明）
+- [x] 双 workflow 触发确认：multi-os-verify 37873644976 + release-image 37873644971 均 in_progress
+- [ ] cron 收尾：CI 全绿 + Release 30 个 assets（15 tar.gz + 15 sha256）到齐确认
 
 ### Phase 8: 上游同步 #1 — V0.22.01（2026-10-08，D14-3 策略首次执行） — complete
 - [x] upstream remote 改 SSH（https 443 不通、SSH 通——origin push 一直走 SSH）；fetch V0.22.01，落后仅 4 commits
