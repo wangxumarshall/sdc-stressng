@@ -6170,6 +6170,15 @@ More instruction-spectrum methods arrive in later commits.
 .TQ
 .B \-\-lsupress\-ops N
 stop after N lsupress bogo operations.
+.TQ
+.B \-\-lsupress\-va\-size B
+per\-worker MAP_NORESERVE virtual address map the random walk covers
+(default 100GB, probe\-shrunk to what the kernel grants).
+.TQ
+.B \-\-lsupress\-window B
+migrating working\-set window inside the VA map (default 256MB); the old
+window is MADV_DONTNEED'd on every hop, pinning the physical footprint
+near the window while the page tables keep growing and shrinking.
 .RE
 .TP
 .B Anonymous file (memfd) stressor

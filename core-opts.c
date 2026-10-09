@@ -842,6 +842,8 @@ const struct option stress_long_options[] = {
 	{ "lsupress",		1,	NULL,	OPT_lsupress },
 	{ "lsupress-method",	1,	NULL,	OPT_lsupress_method },
 	{ "lsupress-ops",	1,	NULL,	OPT_lsupress_ops },
+	{ "lsupress-va-size",	1,	NULL,	OPT_lsupress_va_size },
+	{ "lsupress-window",	1,	NULL,	OPT_lsupress_window },
 	{ "memrate",		1,	NULL,	OPT_memrate },
 	{ "memrate-bytes",	1,	NULL,	OPT_memrate_bytes },
 	{ "memrate-discontiguous", 0,	NULL,	OPT_memrate_discontiguous },
