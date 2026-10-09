@@ -609,8 +609,16 @@ typedef struct {
 	uint8_t *win;		/* current window (page aligned) */
 	size_t   win_size;
 	uint64_t state;		/* xorshift64* window-hop RNG */
+	uint64_t hops;		/* hop counter (va-bit walk) */
+	size_t	 walk;		/* walk mode */
+	stress_bitgen_t bg;	/* bitgen walk RNG */
 	bool	 used;		/* engine active (vs fallback buffer) */
 } lsupress_engine_t;
+
+#define LSUPRESS_WALK_UNIFORM	0
+#define LSUPRESS_WALK_BITGEN	1
+#define LSUPRESS_WALK_VA_BIT	2
+#define LSUPRESS_WALK_NEAR_FAR	3
 
 static uint64_t lsupress_next_hop(lsupress_engine_t *e)
 {
@@ -623,28 +631,108 @@ static uint64_t lsupress_next_hop(lsupress_engine_t *e)
 	return x * 0x2545F4914F6CDD1DULL;
 }
 
+/*
+ *  Walk strategies (all return a hop index into the window lattice):
+ *    uniform   — flat random over the whole map
+ *    bitgen    — bit-band targeted: sweep a 6..20-bit window across
+ *                VA bits 12..47 (TLB-tag bit-segment walk); the hop
+ *                zeroes the swept bits so the window tracks the band
+ *    va-bit    — flips one VA bit per hop, walking bits 12..47 in
+ *                order (systematic single-bit TLB tag coverage)
+ *    near-far  — 7/8 hops land within 1/1024 of the current window
+ *                (locality), 1/8 lands anywhere (TLB miss storm mix)
+ */
+static uint64_t lsupress_walk_hop(lsupress_engine_t *e)
+{
+	switch (e->walk) {
+	default:
+	case LSUPRESS_WALK_UNIFORM:
+		return lsupress_next_hop(e);
+	case LSUPRESS_WALK_BITGEN: {
+		const uint64_t r = stress_bitgen_u64(&e->bg);
+		const unsigned width = 6u + (unsigned)((r >> 58) % 15);
+		const unsigned pos = (unsigned)((r >> 48) % (36u - width));
+		const uint64_t band = (((uint64_t)1 << width) - 1) << (12 + pos);
+
+		return lsupress_next_hop(e) & ~((band / e->win_size) * e->win_size
+				/ e->win_size ? band : band);
+	}
+	case LSUPRESS_WALK_VA_BIT: {
+		const uint64_t bit = 12 + (e->hops++ % 36);
+
+		return lsupress_next_hop(e) ^ (1ULL << bit);
+	}
+	case LSUPRESS_WALK_NEAR_FAR: {
+		const uint64_t r = lsupress_next_hop(e);
+		const size_t near_span = e->map_size >> 10;
+
+		if ((r & 7) != 0 && near_span > e->win_size) {
+			/* near hop: within ~1/1024 of the current window */
+			const size_t cur = (size_t)(e->win - e->map_base);
+			const size_t near_off = (size_t)(r % (near_span / e->win_size));
+
+			return ((uint64_t)(cur / e->win_size) ^ near_off)
+				% (e->map_size / e->win_size);
+		}
+		return r;
+	}
+	}
+}
+
 static void lsupress_engine_init(
 	lsupress_engine_t *e,
 	const uint64_t va_req,
 	const uint64_t win_req,
-	const uint64_t seed)
+	const uint64_t seed,
+	const size_t walk,
+	const size_t huge)
 {
 	size_t size = (size_t)va_req;
+	int extra_flags = MAP_NORESERVE;
 
-	(void)seed;
 	e->state = seed | 1;
 	e->win_size = (size_t)win_req;
+	e->walk = walk;
+	e->hops = 0;
 	e->used = false;
 	e->map_base = MAP_FAILED;
+	stress_bitgen_init(&e->bg);
+	stress_bitgen_seed(&e->bg, seed ^ 0x5A5A5A5A5A5A5A5AULL);
 
-	/* probe-shrink: 100G -> ... -> window*2 minimum */
+#if defined(MAP_HUGETLB)
+	switch (huge) {
+	default:
+	case 0:
+		break;
+#if defined(MAP_HUGE_2MB)
+	case 2 * STRESS_MB:
+		extra_flags |= MAP_HUGETLB | MAP_HUGE_2MB;
+		break;
+#endif
+#if defined(MAP_HUGE_1GB)
+	case 1 * STRESS_GB:
+		extra_flags |= MAP_HUGETLB | MAP_HUGE_1GB;
+		break;
+#endif
+	}
+#else
+	(void)huge;
+#endif
+
+	/* probe-shrink: requested -> ... -> window*2 minimum; hugepage
+	 * requests fall back to base pages with a warning (pool empty) */
 	while (size >= e->win_size * 2) {
 		e->map_base = mmap(NULL, size,
 			PROT_READ | PROT_WRITE,
-			MAP_ANONYMOUS | MAP_PRIVATE | MAP_NORESERVE,
+			MAP_ANONYMOUS | MAP_PRIVATE | extra_flags,
 			-1, 0);
 		if (e->map_base != MAP_FAILED)
 			break;
+		if (extra_flags != MAP_NORESERVE) {
+			pr_inf("lsupress: hugepage mmap failed, falling back to base pages\n");
+			extra_flags = MAP_NORESERVE;
+			continue;
+		}
 		size /= 2;
 	}
 	if (e->map_base == MAP_FAILED)
@@ -666,7 +754,7 @@ static void lsupress_engine_next_window(lsupress_engine_t *e)
 	if (hops > 1) {
 		(void)madvise(e->win, e->win_size, MADV_DONTNEED);
 		e->win = e->map_base +
-			(size_t)(lsupress_next_hop(e) % hops) * e->win_size;
+			(size_t)(lsupress_walk_hop(e) % hops) * e->win_size;
 	}
 }
 
@@ -710,13 +798,29 @@ static const char *stress_lsupress_method(const size_t i)
 	return (i < SIZEOF_ARRAY(lsupress_methods)) ? lsupress_methods[i].name : NULL;
 }
 
+static const char *stress_lsupress_walk(const size_t i);
+
 static const stress_opt_t opts[] = {
 	{ OPT_lsupress_method,	"lsupress-method",	TYPE_ID_SIZE_T_METHOD,	0, 0, stress_lsupress_method },
 	{ OPT_lsupress_ops,	"lsupress-ops",		TYPE_ID_UINT64,		0, 0, NULL },
 	{ OPT_lsupress_va_size,	"lsupress-va-size",	TYPE_ID_SIZE_T_BYTES_VM, 256 * STRESS_MB, 16 * STRESS_TB, NULL },
 	{ OPT_lsupress_window,	"lsupress-window",	TYPE_ID_SIZE_T_BYTES_VM, 4 * STRESS_MB, MAX_MEM_LIMIT, NULL },
+	{ OPT_lsupress_walk,	"lsupress-walk",	TYPE_ID_SIZE_T_METHOD,	0, 0, stress_lsupress_walk },
+	{ OPT_lsupress_huge,	"lsupress-huge",	TYPE_ID_SIZE_T_BYTES_VM, 0, 1 * STRESS_GB, NULL },
 	END_OPT,
 };
+
+static const char *stress_lsupress_walk(const size_t i)
+{
+	static const char *walks[] = {
+		"uniform",
+		"bitgen",
+		"va-bit",
+		"near-far",
+	};
+
+	return (i < SIZEOF_ARRAY(walks)) ? walks[i] : NULL;
+}
 
 static const stress_help_t help[] = {
 	{ NULL,	"lsupress N",		"start N workers exercising the arm64 load/store unit across the instruction spectrum" },
@@ -724,6 +828,8 @@ static const stress_help_t help[] = {
 	{ NULL,	"lsupress-ops N",	"stop after N lsupress bogo operations" },
 	{ NULL,	"lsupress-va-size B",	"per-worker NORESERVE VA map size (default 100GB)" },
 	{ NULL,	"lsupress-window B",	"working-set window size (default 256MB)" },
+	{ NULL,	"lsupress-walk M",	"walk mode: uniform, bitgen, va-bit, near-far" },
+	{ NULL,	"lsupress-huge B",	"page size for the VA map (4k default; 2m/1g use MAP_HUGETLB with fallback)" },
 	{ NULL,	NULL,			NULL }
 };
 
@@ -736,6 +842,8 @@ static int stress_lsupress(stress_args_t *args)
 	size_t lsupress_method = 0;
 	size_t lsupress_va_size = LSUPRESS_DEFAULT_VA_SIZE;
 	size_t lsupress_window = LSUPRESS_DEFAULT_WINDOW;
+	size_t lsupress_walk = LSUPRESS_WALK_UNIFORM;
+	size_t lsupress_huge = 0;
 	stress_lsupress_func_t func;
 	uint64_t *buf;
 	size_t buf_words;
@@ -747,6 +855,8 @@ static int stress_lsupress(stress_args_t *args)
 	(void)stress_setting_get("lsupress-method", &lsupress_method);
 	(void)stress_setting_get("lsupress-va-size", &lsupress_va_size);
 	(void)stress_setting_get("lsupress-window", &lsupress_window);
+	(void)stress_setting_get("lsupress-walk", &lsupress_walk);
+	(void)stress_setting_get("lsupress-huge", &lsupress_huge);
 
 	if (lsupress_method >= method_max) {
 		pr_fail("%s: lsupress-method must be in range [0,%zu]\n",
@@ -778,7 +888,8 @@ static int stress_lsupress(stress_args_t *args)
 	}
 #endif
 
-	lsupress_engine_init(&engine, lsupress_va_size, lsupress_window, seed);
+	lsupress_engine_init(&engine, lsupress_va_size, lsupress_window, seed,
+		lsupress_walk, lsupress_huge);
 	if (engine.used) {
 		stress_memory_anon_name_set(engine.map_base, engine.map_size,
 			"lsupress-va");

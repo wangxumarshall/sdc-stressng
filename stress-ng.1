@@ -6185,6 +6185,16 @@ per\-worker MAP_NORESERVE virtual address map the random walk covers
 migrating working\-set window inside the VA map (default 256MB); the old
 window is MADV_DONTNEED'd on every hop, pinning the physical footprint
 near the window while the page tables keep growing and shrinking.
+.TQ
+.B \-\-lsupress\-walk M
+window hop strategy over the VA map: uniform (flat random), bitgen
+(bit\-band sweep across VA bits 12..47 — TLB\-tag segment targeting),
+va\-bit (systematic single\-VA\-bit flips), near\-far (7/8 local hops +
+1/8 far hops — TLB miss storm mix).
+.TQ
+.B \-\-lsupress\-huge B
+page size for the VA map (default 4k; 2m/1g request MAP_HUGETLB and
+fall back to base pages with a warning when the pool is empty).
 .RE
 .TP
 .B Anonymous file (memfd) stressor

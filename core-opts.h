@@ -948,6 +948,8 @@ typedef enum {
 	OPT_lsupress_ops,
 	OPT_lsupress_va_size,
 	OPT_lsupress_window,
+	OPT_lsupress_walk,
+	OPT_lsupress_huge,
 	OPT_memrate,
 	OPT_memrate_bytes,
 	OPT_memrate_discontiguous,
