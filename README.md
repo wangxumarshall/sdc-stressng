@@ -33,6 +33,85 @@ On hardware without redundancy, the only viable strategy is:
 | **SDCShield** (companion) | The detector: 273 golden-reference compute cases, decides *whether* an SDC occurred, reports the failing CPU (cpu-mask). |
 | **sdc-stressng** (this repo) | The excitor: every cycle goes into load that maximizes SDC excitation probability — di/dt transients, residual heat, cache/TLB/interconnect pressure, SMT contention, boundary timing, SDC-directed data shapes. Its own `--verify` is a ride-along sentinel, never a second detector. |
 
+## Quick start
+
+Three steps, each verified on a fresh clone. `NG` is the path to your
+`stress-ng` binary; every `sdc-run` command derives worker counts, SMT pairs
+and hardware features from the live topology — the same command runs unchanged
+on a Kunpeng 920 (128 CPUs, no SMT) and a Kunpeng 950 (382 CPUs, SMT2).
+
+### 1 · Build (~1 minute)
+
+```bash
+git clone https://github.com/wangxumarshall/sdc-stressng
+cd sdc-stressng
+make clean && make -j$(nproc)     # SVE2 toolchain + HW auto-detected
+NG=$PWD/stress-ng
+```
+
+On aarch64 the build auto-injects the SVE2 march only when both the toolchain
+and the build host support it; `make MARCH_AARCH64_SVE2=1|0` forces either
+way. The SVE-codegen acceptance gate is an objdump check (`z`-register
+instructions > 0), never faith in the autovectorizer.
+
+### 2 · Smoke self-checks (~2 minutes)
+
+```bash
+$NG --operand-var 4 --verify -t 60   # SDC-directed operand mutation
+$NG --addrspace 2 --verify -t 60     # address-shape excitation
+$NG --llccross 2 --verify -t 60      # cross-domain coherence ping-pong
+```
+
+Each exits 0 with `failed: 0` on a healthy machine; mismatches are reported
+with bit-level diagnostics (address, expected/actual, flip count, xor mask).
+Stressors whose hardware is absent skip honestly with a reason — never a fake
+run.
+
+### 3 · The excitation campaigns (`sdc-run`)
+
+`sdc-run.sh` is the orchestrator: one command per campaign, one output
+directory per run, topology-derived everywhere. Pick the campaign that matches
+your goal:
+
+```bash
+# A · Pure excitation — every cycle to load, detection delegated to SDCShield
+NG=$NG ./scripts/sdc-run.sh excite -t 7200 --preheat 10 \
+    --sdcshield "./run-sdcshield.sh"
+
+# B · Trigger + verify sentinels — the tool's own --verify rides along
+NG=$NG ./scripts/sdc-run.sh full -t 7200 --preheat 10
+
+# C · Localise — sweep every physical core with background load kept alive
+NG=$NG ./scripts/sdc-run.sh scan -t 120 --keep-bg 64
+
+# D · Attribute — datapath golden cross-checks on suspect cores
+NG=$NG ./scripts/sdc-run.sh path -t 600 -c 192-381
+
+# E · SMT contention matrix — map which core resources are shared
+NG=$NG ./scripts/sdc-run.sh pair -t 30
+
+# F · A/B regression — did this build change excitation/detection power?
+NG_A=/tmp/stress-ng-old NG_B=$NG ./scripts/sdc-run.sh abtest -t 7200
+
+# The whole funnel in order: full → scan → path
+NG=$NG ./scripts/sdc-run.sh all
+```
+
+How to read the results:
+
+| Campaign | rc=0 means | Evidence of interest |
+|---|---|---|
+| `excite` | excitation completed (**not** "machine healthy") | SDCShield's cpu-mask in `sdcshield.log` |
+| `full` | no verify mismatch | any `verify-failures` in `report.txt`; bit-level diagnostics in the log |
+| `scan` | no suspects | `suspects.txt` names cores with outlier metrics |
+| `path` | no datapath mismatch | a mismatch is direct SDC evidence for that datapath |
+| `pair` | matrix completed | per-combination rate ratios: ≈0.5 shared resource, ≈1.0 private |
+| `abtest` | both arms completed | `ab_summary.txt` compares failure counts build-to-build |
+
+For a staged joint campaign with SDCShield (recommended for a first
+investigation), see
+[docs/sdcshield-integration.md](docs/sdcshield-integration.md).
+
 ## Architecture
 
 Five layers, each with one job. Everything the fork adds lives somewhere in
@@ -40,18 +119,18 @@ this stack (full detail: [docs/architecture.md](docs/architecture.md)):
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│ L5  ORCHESTRATION   sdc-run.sh: full / scan / path / pair /     │
-│                     abtest · topology-derived worker counts ·  │
-│                     preheat · keep-bg · reports                 │
+│ L5  ORCHESTRATION   sdc-run.sh: excite / full / scan / path /  │
+│                     pair / abtest · topology-derived counts · │
+│                     preheat · keep-bg · station rotation      │
 ├────────────────────────────────────────────────────────────────┤
 │ L4  EXCITATION      di/dt load steps (varyload) · residual     │
 │     LEVERS          heat (preheat) · SMT contention (pair) ·   │
 │                     machine-wide concurrency · long soak       │
 ├────────────────────────────────────────────────────────────────┤
-│ L3  ATTACK SURFACE  ALU/branch · vectors (SVE2/NEON) · crypto  │
-│                     (AES/SHA/SM3/SM4) · atomics (LSE) · LSU    │
-│                     (ls64, misalign) · cache hierarchy ·       │
-│                     MMU/TLB (addrspace) · NUMA interconnect    │
+│ L3  ATTACK SURFACE  ALU/branch · OoO scheduler · vectors      │
+│                     (SVE2/NEON) · crypto · atomics (LSE,      │
+│                     lrcpc) · LSU (lsupress, ls64) · cache     │
+│                     hierarchy · MMU/TLB · interconnect        │
 ├────────────────────────────────────────────────────────────────┤
 │ L2  DATA SHAPING    bitgen: bit-band sweeps · edge-value       │
 │                     dictionary · FP bit synthesis · complement │
@@ -71,12 +150,13 @@ Methodology distilled from field evidence and the SDC literature
 
 | Lever | Why it works | Entry point |
 |---|---|---|
-| Machine-wide concurrency | single-core isolation rarely triggers; full-machine concurrency is the observed trigger condition | `sdc-run full` |
+| Machine-wide concurrency | single-core isolation rarely triggers; full-machine concurrency is the observed trigger condition | `sdc-run full` / `excite` |
 | Residual heat + ordering | failing cases only failed when run after heat-generating ones | `--preheat MINS` |
-| di/dt load steps | 6 waveforms × fine-grained load slices modulate the current slew rate | `--varyload N --varyload-ms` |
-| SMT sibling contention | both threads of a core fight over shared execution resources | `sdc-run pair` |
-| SDC-directed data shapes | band sweeps and boundary dictionaries hit bit-segment-sensitive defects >10⁶× more often than uniform random | `--operand-var`, bitgen everywhere |
-| Address-space shaping | huge random spans, per-VA-bit walks, guard holes, mixed page orders stress MMU/TLB paths linear addressing never touches | `--addrspace` |
+| di/dt load steps | load transients modulate the current slew rate | `--varyload N --varyload-ms` (standing background in `excite`) |
+| SMT sibling contention | sibling threads fight over shared execution resources | `sdc-run pair` |
+| SDC-directed data shapes | band sweeps and boundary dictionaries hit bit-segment-sensitive defects >10⁶× more often than uniform random | `--operand-var`, bitgen consumers |
+| Address-space shaping | huge random spans, per-VA-bit walks, guard holes, mixed page orders stress MMU/TLB paths linear addressing never touches | `--addrspace`, `--lsupress` VA walk |
+| OoO scheduler pressure | dependency chains and rename bursts drive the reorder buffer / rename unit into boundary states | `--ooopress` |
 | Long soak | SDC rates as low as 0.01 events/minute demand hours of non-repeating patterns | `-t 2h` and beyond |
 
 ## Hardware attack surface
@@ -85,47 +165,29 @@ Methodology distilled from field evidence and the SDC literature
 |---|---|
 | Vector pipelines | `--sve2` (fmla/gather/fcmla/bfdot/bitperm, golden cross-check), `--fma` (runtime-dispatched SVE2 kernels), `--vecfp` |
 | Crypto engines | `--armcrypto` — 13 methods: NEON AES/SHA1/SHA256/SHA512/SHA3/PMULL/SM3/SM4 + SVE2 crypto via `.inst` encodings (GCC has no intrinsics for these) |
-| Load/store unit | `--ls64` (64-byte atomic ld64b/st64b), `--misaligned`, cache maintenance ops (`--cache-flush`/`--cache-clwb` = DC CIVAC/CVAC, `--memrate-method write64zva` = DC ZVA) |
+| Load/store unit | `--lsupress` — 22 methods across int/FP/NEON/SVE/atomics over a per-worker 100GB MAP_NORESERVE VA map with a migrating working window (MADV_DONTNEED keeps the physical footprint pinned; four walk modes including bitgen TLB-tag bit-band sweeps); `--memcpy-method ldp-stp/neon/neon-ld2/sve/sve-gather/ls64` instruction-variant copy engines; `--ls64`, `--misaligned`, cache maintenance ops (`--cache-flush`/`--cache-clwb` = DC CIVAC/CVAC, `--memrate-method write64zva` = DC ZVA) |
+| OoO scheduler | `--ooopress` — dep-chain (256-step serial chains), indep-max, alt drain-refill waveform, rename-reuse, branch-mix (bitgen-shaped directions, divider arm blocks if-conversion), load-use (head-of-line blocking); 42× measurable bogo-ops spread between shapes |
+| Interconnect / L3 | `--llccross` — cross-domain coherence: shared-line ping-pong with per-turn tag sentinels, remote-write streams, remote mixed scans; pairs workers across NUMA nodes (or L3 instances within a node) |
 | Cache hierarchy | `--cacheline` (rand-payload with ownership tags), `--l1cache` (set/way geometry + bitgen streams), `--cache`, `--memrate` (4 write patterns) |
 | MMU / TLB | `--addrspace` — 7 address-shape recipes, all verified |
-| Atomics | `--atomic` with RMW operand jitter (verify oracle stays deterministic) |
+| Atomics | `--atomic` with RMW operand jitter; lsupress `excl-pair` (ldxr/stxr), `lse-rmw` (ldadd), `lrcpc-pair`/`ilrcpc-rmw` (LDAPR/STLR acquire-release, HWCAP-gated) |
 | Integer ALU | `--cpu` with 71 methods, seed-unlocked so operands vary across runs |
 | Virtual memory | `--vm --vm-method rand-offset` (Fisher-Yates dense random offsets, bitgen payloads) |
 | Randomness / counters | `--rdrand` (RNDR), `--tsc` (CNTVCT_EL0) |
 | Power telemetry | `--rapl` (arm64 hwmon: SoC/DDR rails) |
 
-All SVE2/ls64/RNDR features are HWCAP-gated at runtime with target-attribute
-compile isolation — one binary runs honestly (or skips honestly) on any
-aarch64 host.
-
-## Quick start
-
-```bash
-git clone https://github.com/wangxumarshall/sdc-stressng
-cd sdc-stressng
-make clean && make -j$(nproc)        # aarch64: SVE2 toolchain + HW auto-detected
-
-# SDC-directed self-checks (each takes ~1 minute)
-./stress-ng --operand-var 4 --verify -t 60
-./stress-ng --addrspace 2 --verify -t 60
-
-# The full diagnostic funnel (trigger → localise → attribute)
-NG=./stress-ng ./scripts/sdc-run.sh all
-
-# Pure excitation — every cycle to load, detection delegated to SDCShield
-NG=./stress-ng ./scripts/sdc-run.sh excite -t 7200 --preheat 10 \
-    --sdcshield "./run-sdcshield.sh"
-```
+All SVE2/ls64/RNDR/lrcpc features are HWCAP-gated at runtime with
+target-attribute compile isolation — one binary runs honestly (or skips
+honestly) on any aarch64 host.
 
 ## The sdc-run orchestrator
 
-`scripts/sdc-run.sh` derives everything (worker counts, SMT sibling pairs,
-hardware features) from the live topology, so the same command works unchanged
-on a Kunpeng 920 (128 CPUs, no SMT) and a Kunpeng 950 (382 CPUs, SMT2):
+Everything the campaigns do, in one table (`excite` stations rotate by default
+every 10 minutes — `EXCITE_SLICE` env to change):
 
 | Mode | Purpose |
 |---|---|
-| `excite` | **Pure excitation, station rotation** (2.0): every cycle goes to excitation; detection is fully delegated to SDCShield (`--sdcshield`). Deep pressure via time-slice stations (default 10 min each, `EXCITE_SLICE` env): cpu → fma → armcrypto → lsupress (LSU spectrum + VA walk) → operand-var → memcpy variants → addrspace → memrate, each getting the whole machine at `N_PHYSICAL` workers, with varyload di/dt running as the standing background. rc=0 means "excitation completed", not "machine healthy". |
+| `excite` | **Pure excitation, station rotation** (2.0): deep pressure via time-slice stations (cpu → fma → armcrypto → lsupress → operand-var → memcpy variants → addrspace → memrate), each getting the whole machine at `N_PHYSICAL` workers, with varyload di/dt as the standing background. Detection fully delegated to SDCShield (`--sdcshield`). |
 | `full` | Stage 1 *trigger*: all-cores load (cpu + fma + operand-var + addrspace, verify sentinels on) + varyload di/dt steps + optional `--preheat` and `--sdcshield` |
 | `scan` | Stage 2 *localise*: sweep every physical core (SMT pairs), per-core yaml metrics, suspects list; `--keep-bg N` keeps machine-wide concurrency alive while sweeping |
 | `path` | Stage 3 *attribute*: datapath golden cross-checks (sve2 / ls64 / crc32) — a mismatch is direct SDC evidence for that datapath |
@@ -142,13 +204,15 @@ expected/actual, flip count, xor mask) and aggregated into a diffable
 Daily, on 15 openEuler arm64 container images (20.03 / 22.03 / 24.03 × 5 SPs):
 
 - full `--sequential --verify` suite (330+ stressors per image)
-- 62 `*-method all` sweeps
+- method sweeps covering every `*-method` option
 - benchmark sampling (cpu-matrixprod / fma / memcpy / memrate-zva / stream)
 - a complete stressor × image result matrix (bogo-ops/s) published to the job
   summary — including honest-skip reasons per image
 
 Container images: `ghcr.io/wangxumarshall/sdc-stressng:verify-<git-tag>`
 (published via the manual `publish_image` dispatch of the CI workflow).
+
+## Release packages
 
 Every published [Release](https://github.com/wangxumarshall/sdc-stressng/releases)
 carries **self-contained per-image packages**: each of the 15 openEuler
@@ -160,7 +224,7 @@ step, no dependency installs:
 
 ```bash
 tar xzf sdc-stressng-<ver>.openeuler-<your-image>.aarch64.tar.gz
-cd sdc-stressng-*/ && ./excite.sh 120
+cd sdc-stressng-*/ && ./excite.sh 120     # 2h maximum excitation
 ```
 
 ## Building
@@ -169,13 +233,8 @@ cd sdc-stressng-*/ && ./excite.sh 120
 make clean && make -j$(nproc)
 ```
 
-On aarch64 the build auto-detects an SVE2-capable toolchain *and* SVE2
-hardware; only when both are present it injects
-`-O3 -march=armv8.6-a+sve2+bf16+i8mm+sve2-bitperm` (SVE codegen needs `-O3`).
-Force either way with `make MARCH_AARCH64_SVE2=1|0`. The acceptance gate for
-SVE codegen is an objdump check (`z`-register instructions > 0), not faith in
-the autovectorizer.
-
+`make clean` is mandatory after pulling (config.h is regenerated). SVE2 march
+injection: auto (toolchain + hardware dual-gated) or `MARCH_AARCH64_SVE2=1|0`.
 Cross-compiling, static builds, optional library dependencies and non-arm
 platforms are unchanged from upstream stress-ng — see the
 [upstream project](https://github.com/ColinIanKing/stress-ng) for that
@@ -186,10 +245,10 @@ documentation.
 | Document | Content |
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | Five-layer architecture, layer responsibilities, design decisions |
-| [docs/excitation-guide.md](docs/excitation-guide.md) | Excitation coverage matrix (levers × pathways × data shapes), methodology, references |
+| [docs/excitation-guide.md](docs/excitation-guide.md) | Excitation coverage matrix (levers × pathways × data shapes), methodology, gap roadmap |
 | [docs/sdcshield-integration.md](docs/sdcshield-integration.md) | Joint campaign playbook: topology, staged scripts, report correlation |
 | [docs/upstream-sync.md](docs/upstream-sync.md) | Upstream merge policy and conflict containment |
-| [CLAUDE.md](CLAUDE.md) | Internal development guide (Chinese): verification discipline, 10 code rules from 12 rounds of field lessons |
+| [CLAUDE.md](CLAUDE.md) | Internal development guide (Chinese): verification discipline, code rules from 15 rounds of field lessons |
 | `stress-ng.1` | Man page (upstream + fork options) |
 | `docs/superpowers/` | Engineering research and round-by-round implementation records |
 
