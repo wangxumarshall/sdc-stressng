@@ -55,7 +55,9 @@
 #	         A rate ratio near 0.5 means the contended resource is
 #	         fully shared, near 1.0 means private - this maps the
 #	         SMT2 sharing topology of the chip (no public microarch
-#	         data exists for ARM server SMT2 cores).
+#	         data exists for ARM server SMT2 cores).  Runtime = cores
+#	         x 4 x secs-per-pair; use -c to sample cores on large
+#	         machines.
 #	  abtest [-t secs] [-o dir]
 #	         A/B regression between two stress-ng builds: NG_A=<old>
 #	         NG_B=<new> (env vars) run the full-mode recipe each,
@@ -552,9 +554,16 @@ run_path()
 #
 #  For every physical core, run the SMT sibling threads against each
 #  other in 4 workload combinations and record the bogo-ops rates.
-#  On non-SMT machines each "pair" degenerates to a single CPU and the
-#  matrix still runs (one worker per combination, rates = single
-#  thread baseline) which keeps the script testable on any machine.
+#  Each side of a
+#  combination is a SEPARATE stress-ng process pinned to its own
+#  sibling: --taskset is a process-wide binding in stress-ng (the
+#  last occurrence on a command line wins), so a single invocation
+#  carrying two --taskset options pins BOTH workers to the second
+#  sibling and measures two workers time-slicing one hyperthread,
+#  not sibling contention.
+#  On non-SMT machines each "pair" degenerates to a single CPU and
+#  the matrix still runs (both sides time-share that one CPU) which
+#  keeps the script testable on any machine.
 #  ---------------------------------------------------------------------------
 run_pair()
 {
@@ -575,20 +584,43 @@ run_pair()
 		done
 	fi
 	local n_reps=${#reps[@]}
-	echo "=== mode pair: ${n_reps} physical cores x 4 combinations, ${per_pair}s each ==="
-	[ $SMT -eq 0 ] && echo "                (no SMT: single worker per combination = baseline rates)"
 
 	#  The contention matrix.  Each entry: NAME:stressor1:method1:stressor2:method2
-	#  fma x fma       -> both siblings hammer the shared vector pipelines
-	#  fma x cpu       -> vector vs integer dispatch port contention
-	#  armcrypto x fma -> independent units, expect near-linear scaling
-	#  cacheline x cacheline -> shared L1/L2 write pressure
+	#  (empty method = the stressor's default method).  Contended resource domain:
+	#  fma x fma               -> vector: both siblings hammer the shared
+	#                             vector FMA pipelines
+	#  fma x cpu               -> execute: vector vs integer dispatch port
+	#                             contention
+	#  armcrypto x fma         -> execute: independent units, expect
+	#                             near-linear scaling
+	#  cacheline x cacheline   -> cache: shared L1/L2 write pressure
 	local -a COMBOS=(
 		"fma_x_fma:fma::fma:"
 		"fma_x_cpu:fma::cpu:matrixprod"
 		"armcrypto_x_fma:armcrypto::fma:"
 		"cacheline_x_cacheline:cacheline::cacheline:"
 	)
+	local n_combos=${#COMBOS[@]}
+
+	#  Runtime guard: total = n_reps x n_combos x per_pair seconds.  A
+	#  full sweep on a big SMT machine (e.g. CP1's 191 physical cores)
+	#  is 191 x 4 x 30s ~ 6.4 hours - sample cores with -c (a few per
+	#  NUMA node) for machine-wide topology surveys.
+	echo "=== mode pair: ${n_reps} physical cores x ${n_combos} combinations, ${per_pair}s each (est. $(( n_reps * n_combos * per_pair ))s total) ==="
+	[ $SMT -eq 0 ] && echo "                (no SMT: both sides of each combination time-share one CPU)"
+	if [ -z "$CPU_LIST" ] && [ "$n_reps" -gt 32 ]; then
+		echo "                (hint: ${n_reps} cores x ${n_combos} combos is a long sweep; -c cpulist samples a subset)"
+	fi
+
+	#  Extract the bogo-ops/s (real time) data rows from a metrics-brief
+	#  log: lines after the header that start with the stressor name
+	#  and carry numbers, as "stressor=rate" pairs
+	pair_rate_of()
+	{
+		awk '/\(real time\) \(usr\+sys time\)/{seen=1; next}
+		     seen && NF >= 9 {print $4 "=" $(NF-1)}
+		     /^stress-ng: info/{seen=0}' "$1" 2>/dev/null | tr '\n' ' '
+	}
 
 	: > "$out/pair-matrix.txt"
 	local rep combo
@@ -602,33 +634,37 @@ run_pair()
 			local s2="${rest%%:*}"
 			local m2="${rest#*:}"
 
-			#  Build the per-sibling argument sets; on non-SMT
-			#  machines both workers land on the same single CPU
+			#  Sibling CPUs of this physical core; on non-SMT
+			#  machines both sides land on the same single CPU
 			local c1 c2
 			c1="${pair%%,*}"
 			c2="${pair##*,}"
 			[ "$c2" = "$pair" ] && c2="$c1"
 
+			#  Per-sibling argument sets (side A = c1, side B = c2)
 			local -a A1=(--"$s1" 1 --taskset "$c1")
 			[ -n "$m1" ] && A1+=(--"$s1"-method "$m1")
 			local -a A2=(--"$s2" 1 --taskset "$c2")
 			[ -n "$m2" ] && A2+=(--"$s2"-method "$m2")
 
-			"$NG" "${A1[@]}" "${A2[@]}" \
-				--metrics-brief -Y "$out/pair_${rep}_${name}.yaml" \
-				-t "${per_pair}s" > "$out/pair_${rep}_${name}.log" 2>&1
-			local prc=$?
-			[ $prc -ne 0 ] && { rc=$prc; echo "  cpu $pair combo $name: rc=$prc"; }
+			#  One stress-ng process per sibling so each --taskset
+			#  actually binds its own worker to its own sibling
+			"$NG" "${A1[@]}" --metrics-brief \
+				-Y "$out/pair_${rep}_${name}.a.yaml" \
+				-t "${per_pair}s" > "$out/pair_${rep}_${name}.a.log" 2>&1 &
+			local p1=$!
+			"$NG" "${A2[@]}" --metrics-brief \
+				-Y "$out/pair_${rep}_${name}.b.yaml" \
+				-t "${per_pair}s" > "$out/pair_${rep}_${name}.b.log" 2>&1 &
+			local p2=$!
+			wait "$p1"; local rc1=$?
+			wait "$p2"; local rc2=$?
+			[ $rc1 -ne 0 ] && { rc=$rc1; echo "  cpu $pair combo $name (cpu $c1): rc=$rc1"; }
+			[ $rc2 -ne 0 ] && { rc=$rc2; echo "  cpu $pair combo $name (cpu $c2): rc=$rc2"; }
 
-			#  Record the bogo-ops rate lines (data rows) for the
-			#  combo: lines after the metrics-brief header that
-			#  start with the stressor name and carry numbers
-			local ops
-			ops=$(awk '/\(real time\) \(usr\+sys time\)/{seen=1; next}
-				   seen && NF >= 9 {print $4 "=" $(NF-1)}
-				   /^stress-ng: info/{seen=0}' \
-				"$out/pair_${rep}_${name}.log" 2>/dev/null | tr '\n' ' ')
-			echo "$rep ($pair) $name: $ops" >> "$out/pair-matrix.txt"
+			#  Record the bogo-ops rate of each side of the combo:
+			#  "stressor=rate" pairs, side A first, then side B
+			echo "$rep ($pair) $name: $(pair_rate_of "$out/pair_${rep}_${name}.a.log")$(pair_rate_of "$out/pair_${rep}_${name}.b.log")" >> "$out/pair-matrix.txt"
 		done
 		echo "  core $pair done"
 	done
