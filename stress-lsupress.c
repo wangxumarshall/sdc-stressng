@@ -407,6 +407,7 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_lse_rmw(
 #define HWCAP_ILRCPC		(1 << 26)
 #endif
 
+#if defined(__GNUC__) && __GNUC__ >= 10
 /*  lrcpc-pair: LDAPR acquire + STLR release to the same line, one
  *  pair per 64B cacheline, zero ALU between the two (pure acquire/
  *  release ordering density; HWCAP_LRCPC gated at dispatch) */
@@ -481,6 +482,7 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_ilrcpc_rmw(
 	}
 	__asm__ __volatile__ ("" : : "r" (v) : "memory");
 }
+#endif  /* __GNUC__ >= 10 */
 
 #if defined(__ARM_FEATURE_LS64)
 #include <arm_acle.h>
@@ -829,8 +831,10 @@ static stress_lsupress_method_info_t lsupress_methods[] = {
 	{ "mix-neon-fma",	stress_lsupress_mix_neon_fma,	0 },
 	{ "excl-pair",		stress_lsupress_excl_pair,	0 },
 	{ "lse-rmw",		stress_lsupress_lse_rmw,	HWCAP_ATOMICS },
+#if defined(__GNUC__) && __GNUC__ >= 10
 	{ "lrcpc-pair",		stress_lsupress_lrcpc_pair,	HWCAP_LRCPC },
 	{ "ilrcpc-rmw",		stress_lsupress_ilrcpc_rmw,	HWCAP_ILRCPC },
+#endif
 #if defined(__ARM_FEATURE_LS64)
 	{ "ls64-copy",		stress_lsupress_ls64_copy,	0 },	/* HWCAP2/3 gated in main */
 #endif

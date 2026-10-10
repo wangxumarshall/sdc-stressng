@@ -6207,7 +6207,8 @@ excl\-pair, lse\-rmw, lrcpc\-pair, ilrcpc\-rmw, ls64\-copy.
 SVE methods skip on CPUs without SVE; lse\-rmw requires LSE atomics;
 lrcpc\-pair requires the RCpc LDAPR load\-acquire extension
 (HWCAP_LRCPC); ilrcpc\-rmw requires the unscaled LDAPUR/STLUR forms
-(HWCAP_ILRCPC);
+(HWCAP_ILRCPC); both lrcpc methods are compiled only on gcc 10 or
+newer toolchains (armv8.3\-a/armv8.4\-a target attributes);
 ls64\-copy is compiled only on ls64\-capable toolchains and skips on
 CPUs without the ls64 extension.
 .TQ
