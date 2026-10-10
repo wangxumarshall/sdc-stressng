@@ -94,7 +94,7 @@ make clean && make -j$(nproc)   # 本机 gcc 12 即可；make clean 在拉取后
 
 ## 文档结构与语言规范
 
-- **用户向文档（英文）**：README.md、docs/{architecture,excitation-guide,sdcshield-integration,upstream-sync}.md、CHANGELOG.md、SECURITY.md、CONTRIBUTING.md、SUPPORT.md、man 页（stress-ng.1）
+- **用户向文档（英文为主 + 中文 README）**：README.md（英文主文档）、README.zh-CN.md（中文版，命令与英文版逐一一致，两版顶部互链）、docs/{architecture,excitation-guide,sdcshield-integration,upstream-sync}.md、CHANGELOG.md、SECURITY.md、CONTRIBUTING.md、SUPPORT.md、man 页（stress-ng.1）
 - **内部工作记忆（中文，有意为之）**：CLAUDE.md（本文件）、findings.md / task_plan.md / progress.md（planning-with-files 三件套）、docs/superpowers/{research,plans}/（每轮研究/方案归档）
 - 语言规则：代码注释、commit message、用户向文档 = 英文；内部工程记忆 = 中文
 

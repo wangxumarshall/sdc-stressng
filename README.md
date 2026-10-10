@@ -5,6 +5,8 @@
 [![License](https://img.shields.io/badge/license-GPL--2.0-blue.svg)](COPYING)
 [![Arch](https://img.shields.io/badge/arch-arm64%20%28aarch64%29-orange.svg)](https://github.com/wangxumarshall/sdc-stressng)
 
+**English | [简体中文](README.zh-CN.md)**
+
 > **SDC excitation engine for arm64 servers.**
 > A [stress-ng](https://github.com/ColinIanKing/stress-ng) fork with a single mission:
 > spend every CPU cycle maximizing the probability of exciting **silent data
