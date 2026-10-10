@@ -62,10 +62,10 @@ Rows = levers, columns = hardware pathways. `●` covered, `◐` partial,
 
 | Gap | Why it matters | Candidate approach |
 |---|---|---|
-| Interconnect-dedicated excitation (L3-instance and cross-socket coherence traffic shaping) | L3 is split in 24 instances on the reference 950; coherence corner traffic is a documented low-coverage area | NUMA-aware ping-pong stressor with bitgen payloads on shared lines |
+| Interconnect-dedicated excitation (L3-instance and cross-socket coherence traffic shaping) | L3 is split in 24 instances on the reference 950; coherence corner traffic is a documented low-coverage area | mostly closed: `--llccross` stressor + excite station wired (pingpong/remote-write/remote-stream, NUMA-domain pairing with L3-instance fallback); remaining: cross-domain page-placement calibration on real hardware |
 | lrcpc/ilrcpc (RCpc atomics) pathway | available on target hardware, unused | lsupress method (same target-attribute pattern as lse-rmw) |
 | SMT × MMU/TLB and SMT × atomics combinations | pair matrix covers vector/cpu/cache only | extend `pair` COMBOS |
-| OoO pressure orchestration | the `--ooopress` stressor landed (6 dependency/rename/branch/load-use shapes, bitgen operand pool) but is not yet in any campaign rotation; SMT pair combinations with scheduler pressure untested | add an ooopress station to the `excite 2.0` rotation; extend `pair` COMBOS (ooopress x fma) |
+| OoO pressure orchestration | the `--ooopress` stressor landed (6 dependency/rename/branch/load-use shapes, bitgen operand pool); SMT pair combinations with scheduler pressure untested | ooopress station added to the `excite 2.0` rotation; remaining: extend `pair` COMBOS (ooopress x fma) |
 | Real-machine bitgen calibration loop | window/density parameters were tuned statistically, not against real flip distributions | run `sdc-flip-collect.sh` on a machine with observed SDC, feed back `--bitgen-band-*` |
 | excite station for SVE-less walks on 920-class hosts | lsupress-sve/memcpy-sve stations only appear on SVE2 machines (correct); a 920-native deep LSU station beyond lsupress-all is thin | add more base-page methods once field data arrives |
 
@@ -76,7 +76,7 @@ are deliberate, not accidental):
 
 | Mode | Recipe | Rationale |
 |---|---|---|
-| `excite` | cpu-method all + fma + armcrypto + operand-var + addrspace + memrate-bandwalk + vm-rand-offset + varyload | widest pathway coverage at zero verify cost — crypto and memory-shape stressors are affordable only where no verify budget competes |
+| `excite` | station rotation: cpu-method all → fma → armcrypto → lsupress → llccross → operand-var → ooopress → memcpy ldp-stp/neon-ld2 → addrspace → memrate-bandwalk, + varyload standing background | widest pathway coverage at zero verify cost — crypto, interconnect, scheduler and memory-shape stressors are affordable only where no verify budget competes |
 | `full` | cpu-method all + fma + operand-var + addrspace + varyload, verify sentinels on | the trigger + verify window; adding armcrypto/memrate/vm would spend the verify budget on extra pathways — that trade is exactly what `excite` exists for |
 | preheat | all-core fma + vecfp, no verify | vector-heavy heat generation is the strongest empirically observed pre-failure condition |
 | `scan` | per-sibling-pair sweep + `--keep-bg` cpu matrixprod | localisation needs per-core metric cleanliness; keep-bg preserves the machine-wide concurrency trigger |

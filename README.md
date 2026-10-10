@@ -189,7 +189,7 @@ every 10 minutes — `EXCITE_SLICE` env to change):
 
 | Mode | Purpose |
 |---|---|
-| `excite` | **Pure excitation, station rotation** (2.0): deep pressure via time-slice stations (cpu → fma → armcrypto → lsupress → operand-var → memcpy variants → addrspace → memrate), each getting the whole machine at `N_PHYSICAL` workers, with varyload di/dt as the standing background. Detection fully delegated to SDCShield (`--sdcshield`). |
+| `excite` | **Pure excitation, station rotation** (2.0): deep pressure via time-slice stations (cpu → fma → armcrypto → lsupress → llccross → operand-var → ooopress → memcpy variants → addrspace → memrate), each getting the whole machine at `N_PHYSICAL` workers, with varyload di/dt as the standing background. Detection fully delegated to SDCShield (`--sdcshield`). |
 | `full` | Stage 1 *trigger*: all-cores load (cpu + fma + operand-var + addrspace, verify sentinels on) + varyload di/dt steps + optional `--preheat` and `--sdcshield` |
 | `scan` | Stage 2 *localise*: sweep every physical core (SMT pairs), per-core yaml metrics, suspects list; `--keep-bg N` keeps machine-wide concurrency alive while sweeping |
 | `path` | Stage 3 *attribute*: datapath golden cross-checks (sve2 / ls64 / crc32) — a mismatch is direct SDC evidence for that datapath |

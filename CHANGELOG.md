@@ -32,6 +32,22 @@ scheduler pressure with shaped dependencies"):
 - pure excitation, no verify oracle (detection delegated to SDCShield
   running alongside)
 
+excite 2.0 station rotation wired to the two stressors that had landed
+without a campaign slot (excitation-guide gaps "Interconnect-dedicated
+excitation" and "OoO pressure orchestration"):
+
+- `llccross` station — cross-domain coherence traffic (shared-line
+  ping-pong with per-turn tag sentinels, remote-write streams, remote
+  mixed scans) at 8m per worker; pairs workers across NUMA nodes with
+  L3-instance fallback, so multi-node hosts get true cross-socket
+  pressure in rotation (also records the stressor itself, which had
+  landed without a CHANGELOG entry)
+- `ooopress` station — OoO scheduler pressure shapes now rotate with
+  the rest of the spectrum
+- station list: cpu, fma, armcrypto, lsupress, llccross, operand-var,
+  ooopress, memcpy-ldp-stp, memcpy-neon, [memcpy-sve, lsupress-sve on
+  SVE2 hosts], addrspace, memrate
+
 ## [0.22.01-sdc.1] — 2026-10-08
 
 LSU instruction-spectrum engine (same version line):

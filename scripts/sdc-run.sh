@@ -342,7 +342,9 @@ run_full()
 #    fma            vector pipelines (SVE2 kernels where present)
 #    armcrypto      13 crypto engines
 #    lsupress       LSU instruction spectrum + VA random walk
+#    llccross       cross-domain coherence traffic (pingpong/remote-*)
 #    operand-var    shaped operands on real compute paths
+#    ooopress       OoO scheduler pressure (dep chains, ILP waves)
 #    memcpy-<v>     one instruction-variant copy engine per pass
 #    addrspace      MMU/TLB address shapes
 #    memrate        LSU + bandwalk-shaped writes
@@ -380,7 +382,7 @@ run_excite()
 	total_mem_mb=$(awk '/^MemTotal:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 262144)
 
 	#  station table: feature-gated deep-pressure stressors
-	local -a STATIONS=( cpu fma armcrypto lsupress operand-var
+	local -a STATIONS=( cpu fma armcrypto lsupress llccross operand-var ooopress
 			    memcpy-ldp-stp memcpy-neon addrspace memrate )
 	[ "$HAS_SVE2" -eq 1 ] && STATIONS+=( memcpy-sve lsupress-sve )
 	local station_idx=0
@@ -404,7 +406,9 @@ run_excite()
 		armcrypto)	"$NG" --armcrypto "$N_PHYSICAL" -t "${t}s" ;;
 		lsupress)	"$NG" --lsupress "$N_PHYSICAL" -t "${t}s" ;;
 		lsupress-sve)	"$NG" --lsupress "$N_PHYSICAL" --lsupress-method all --lsupress-va-size 32g --lsupress-window 512m -t "${t}s" ;;
+		llccross)	"$NG" --llccross "$N_PHYSICAL" --llccross-bytes 8m --llccross-lines 64 -t "${t}s" ;;
 		operand-var)	"$NG" --operand-var "$N_PHYSICAL" -t "${t}s" ;;
+		ooopress)	"$NG" --ooopress "$N_PHYSICAL" -t "${t}s" ;;
 		memcpy-ldp-stp)	"$NG" --memcpy "$N_PHYSICAL" --memcpy-method ldp-stp -t "${t}s" ;;
 		memcpy-neon)	"$NG" --memcpy "$N_PHYSICAL" --memcpy-method neon-ld2 -t "${t}s" ;;
 		memcpy-sve)	"$NG" --memcpy "$N_PHYSICAL" --memcpy-method sve -t "${t}s" ;;

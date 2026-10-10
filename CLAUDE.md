@@ -106,7 +106,7 @@ make clean && make -j$(nproc)   # 本机 gcc 12 即可；make clean 在拉取后
 
 ## 当前遗留（backlog，权威来源 = docs/excitation-guide.md gap 路线图）
 
-互联/L3 跨实例定向激发（`--llccross`，跨域页面放置待 CP1 无 cpuset 环境验证）、lrcpc/ilrcpc 通路（CP1 HWCAP 置位待验）、ooopress 编排接入（excite 站点 + pair 组合）、真机 bitgen 校准闭环（sdc-flip-collect.sh 待 CP1 数据）、ci-trend.sh 一周稳定性对比（需认证环境）、CP1 真机 A/B 长跑（abtest 已就绪）、pair 模式 SMT 历史数据因兄弟线程放置 bug 全部作废需重采。
+互联/L3 跨实例定向激发（`--llccross` 已进 excite 站点；跨域页面放置待 CP1 无 cpuset 环境验证）、lrcpc/ilrcpc 通路（CP1 HWCAP 置位待验）、ooopress 编排接入（excite 站点已接，pair 组合待做）、真机 bitgen 校准闭环（sdc-flip-collect.sh 待真机数据）、ci-trend.sh 一周稳定性对比（需认证环境）、CP1 真机 A/B 长跑（abtest 已就绪）、pair 模式 SMT 历史数据因兄弟线程放置 bug 全部作废需重采。
 
 ## 规则
 - git 提交中不能出现"Co-Authored-By: Claude Code"行
