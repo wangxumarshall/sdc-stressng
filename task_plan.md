@@ -100,9 +100,29 @@
 
 ## Next Step
 
-**Phase 11（第十五轮）brainstorming 完成、设计已获用户批准**：spec 已写入
-docs/superpowers/specs/2026-10-09-lsu-instruction-spectrum-design.md——
-待用户审阅 spec 后进 writing-plans 出实施计划（P1-P8）。
+**Phase 12 并行推进中（用户指令"并行加速，多agent"）**：5 agent 后台并行 + CI 复验收尾。
+完成后由主会话合并（注册链/man 冲突处理）→ 统一强制 SVE2 构建预检 → 逐个 commit 进 main。
+
+### Phase 12: backlog 并行推进（5 agent，2026-10-10 dispatch）— in_progress
+| Agent | 任务 | 隔离 | 冲突面 |
+|---|---|---|---|
+| QEMU | 重建 /tmp/qemu-out/qemu-aarch64 8.2.0 用户态（download.qemu.org 已验可达），-cpu max 验证 SVE2/lsupress-SVE/memcpy-sve-gather | /tmp | 无（只构建 stress-ng 做验证） |
+| llccross | 互联/L3 跨实例定向激发新 stressor（共享行乒乓+远端写+跨 socket 流，bitgen 形状，拓扑推导） | worktree | 注册链四文件+man（合并时处理） |
+| lrcpc | lsupress 加 lrcpc-pair/ilrcpc-rmw 方法（HWCAP2 检测+armv8.3 target 属性；内核零框架调用铁律） | worktree | stress-lsupress.c+man |
+| pair | sdc-run pair 模式 4→8 组合（vm/addrspace/atomic/lsupress ×同） | worktree | sdc-run.sh+README/CLAUDE.md |
+| ooo | OoO 调度器压力新 stressor（dep-chain/indep-max/alt/rename-reuse/branch-mix） | worktree | 注册链四文件+man |
+
+同时后台：CI 复验 run（c973cad25，17:07 cron 收尾）。外部 spec 编辑已 stash（不丢）。
+
+### Phase 12b: 合并与收尾（agent 返回后主会话执行）
+- [ ] 逐 agent 读返回摘要，worktree 分支合并（注册链冲突=各加各的行，手动合并）
+- [ ] 合并后统一：make clean+make / MARCH_AARCH64_SVE2=1 强制构建 / 全新 stressor 冒烟
+- [ ] 逐个成果独立 commit（one-patch-per-unit）进 main + push
+- [ ] CI 再 dispatch 一轮（新增 stressor 自动进 method sweep）
+- [ ] QEMU 环境验证 SVE 类新代码（若 QEMU agent 成功）
+- [ ] 文档矩阵/CHANGELOG 更新
+
+### Phase 11: LSU 全指令谱 SDC 激发引擎（2026-10-09，executing-plans native 模式） — 11/11 code complete, CI 复验中
 
 ### Phase 11: LSU 全指令谱 SDC 激发引擎（2026-10-09，executing-plans native 模式） — in_progress
 **Ledger**（plan: docs/superpowers/plans/2026-10-09-lsu-instruction-spectrum.md，11 tasks；commit 即进度）：
