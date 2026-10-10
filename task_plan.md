@@ -114,13 +114,13 @@
 
 同时后台：CI 复验 run（c973cad25，17:07 cron 收尾）。外部 spec 编辑已 stash（不丢）。
 
-### Phase 12b: 合并与收尾（agent 返回后主会话执行）
-- [ ] 逐 agent 读返回摘要，worktree 分支合并（注册链冲突=各加各的行，手动合并）
-- [ ] 合并后统一：make clean+make / MARCH_AARCH64_SVE2=1 强制构建 / 全新 stressor 冒烟
-- [ ] 逐个成果独立 commit（one-patch-per-unit）进 main + push
-- [ ] CI 再 dispatch 一轮（新增 stressor 自动进 method sweep）
-- [ ] QEMU 环境验证 SVE 类新代码（若 QEMU agent 成功）
-- [ ] 文档矩阵/CHANGELOG 更新
+### Phase 12b: 合并与收尾（agent 返回后主会话执行） — complete
+- [x] 4 worktree 分支合并进 main（llccross→ooopress→lrcpc→pair；唯一冲突=CLAUDE.md backlog 行，合并语义解决）；QEMU agent 无源码改动
+- [x] 合并后修复：lsupress 22 内核 unused-args 警告（c973cad25 引入、当时验收 grep 只查错误漏掉——教训：验收 grep 必须同时查警告）→ 签名收敛 3 参（581e2f361）
+- [x] 统一验证：normal build rc=0 零 fork 文件警告 / MARCH_AARCH64_SVE2=1 rc=0 零 mismatch / llccross(pingpong+verify)/ooopress(dep-chain)/lrcpc(诚实skip)/store-int64 verify 全冒烟绿 / pair E2E rc=0 全 8 组合有速率（首跑一次 lsupress SIGSEGV 瞬态，同核双进程×5 复跑零复现，与 T5 mix-2l 瞬态同型）
+- [x] 全部推送 581e2f361；CI re-dispatch 204（15 镜像验证合并树——新 stressor 自动进 sequential+method sweep）
+- [x] 5 worktree + 分支清理；spec 外部编辑 stash 恢复
+- 遗留观察项（CI 值守）：pair 瞬态 SIGSEGV 若在 CI 复现需深挖；llccross 跨域页面放置待 CP1；ooopress 编排接入（excite 站点+pair 组合）下轮
 
 ### Phase 11: LSU 全指令谱 SDC 激发引擎（2026-10-09，executing-plans native 模式） — 11/11 code complete, CI 复验中
 

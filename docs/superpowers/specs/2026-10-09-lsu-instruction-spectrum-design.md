@@ -1,7 +1,7 @@
 # LSU 全指令谱 SDC 激发引擎 — 设计规格（spec）
 
 日期：2026-10-09 ｜ 状态：已获用户批准的设计，待 spec 审阅
-来源：第十五轮 brainstorming（用户需求：不同指令实现的 load/store 压测 + memcpy 变体；
+来源：第十五轮 brainstorming（用户需求：在现有stress-ng基础上，不同指令实现的 load/store 压测 + memcpy 变体；
 强化需求：访存要"疯狂大、高频"，地址在**最大虚拟地址空间全范围随机游走**）
 
 ## 1. 背景与动机
