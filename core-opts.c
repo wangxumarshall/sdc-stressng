@@ -729,6 +729,12 @@ const struct option stress_long_options[] = {
 	{ "llc-affinity-ops",	1,	NULL,	OPT_llc_affinity_ops },
 	{ "llc-affinity-size",	1,	NULL,	OPT_llc_affinity_size },
 
+	{ "llccross",		1,	NULL,	OPT_llccross },
+	{ "llccross-bytes",	1,	NULL,	OPT_llccross_bytes },
+	{ "llccross-lines",	1,	NULL,	OPT_llccross_lines },
+	{ "llccross-method",	1,	NULL,	OPT_llccross_method },
+	{ "llccross-ops",	1,	NULL,	OPT_llccross_ops },
+
 	{ "loadavg",		1,	NULL,	OPT_loadavg },
 	{ "loadavg-max",	1,	NULL,	OPT_loadavg_max },
 	{ "loadavg-ops",	1,	NULL,	OPT_loadavg_ops },

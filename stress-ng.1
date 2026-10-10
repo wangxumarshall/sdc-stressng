@@ -5552,6 +5552,40 @@ override the default LLC cache size setting to N bytes. One can specify the
 in units of Bytes, KBytes, MBytes and GBytes using the suffix b, k, m or g.
 .RE
 .TP
+.B Interconnect (llccross) stressor
+.RS 5
+.TQ
+.B \-\-llccross N
+start N workers directing coherence traffic across L3 cache instances
+and NUMA nodes. Each worker forks one partner process and binds the
+pair to two different memory domains so every beat of the workload
+crosses the interconnect: domains are NUMA nodes where the CPU
+affinity spans more than one node, the L3 instances of the sysfs
+index3 shared_cpu_list when only one node is available, and a single
+degraded domain (with a log message) on single-domain machines.
+.TQ
+.B \-\-llccross\-method [ all | pingpong | remote\-write | remote\-stream ]
+select the traffic shape. pingpong bounces shared cachelines between
+the two private caches of the pair (one line transfer per beat,
+deterministic tag word checked on every beat even without
+\-\-verify). remote\-write streams full\-line stores from each side
+into a buffer first\-touched on the partner's domain. remote\-stream
+scans the partner's buffer with sequential lines plus bitgen\-shaped
+jump offsets and sparse dirtying writes. The default, all, picks a
+method per worker.
+.TQ
+.B \-\-llccross\-ops N
+stop after N llccross bogo operations.
+.TQ
+.B \-\-llccross\-bytes B
+per\-side buffer size for the remote methods, range 64KB to the
+memory limit, the default is 8MB.
+.TQ
+.B \-\-llccross\-lines N
+number of shared cachelines bounced by the pingpong method, range 1
+to 8192, the default is 64.
+.RE
+.TP
 .B Load average (loadavg) stressor
 .RS 5
 .TQ

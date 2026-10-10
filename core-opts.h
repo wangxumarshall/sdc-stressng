@@ -837,6 +837,12 @@ typedef enum {
 	OPT_llc_affinity_ops,
 	OPT_llc_affinity_size,
 
+	OPT_llccross,
+	OPT_llccross_bytes,
+	OPT_llccross_lines,
+	OPT_llccross_method,
+	OPT_llccross_ops,
+
 	OPT_loadavg,
 	OPT_loadavg_max,
 	OPT_loadavg_ops,

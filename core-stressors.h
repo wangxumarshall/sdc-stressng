@@ -175,6 +175,7 @@
 	MACRO(link)		\
 	MACRO(list)		\
 	MACRO(llc_affinity)	\
+	MACRO(llccross)		\
 	MACRO(loadavg)		\
 	MACRO(locka)		\
 	MACRO(lockbus)		\
