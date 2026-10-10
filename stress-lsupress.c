@@ -139,8 +139,8 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_mix_2l_alu_1s(
 
 	for (i = 0; i < blocks; i++) {
 		register uint64_t x0, x1, x2;
-		const uint64_t *sp = src + (i * 16) + off;
-		uint64_t *dp = dst + (i * 16) + off;
+		const uint64_t *sp = src + (i * 8) + off;
+		uint64_t *dp = dst + (i * 8) + off;
 
 		__asm__ __volatile__ (
 			"ldr %0, [%3], #8\n"
@@ -202,8 +202,8 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_mix_3l_2alu_1s(
 
 	for (i = 0; i < blocks; i++) {
 		register uint64_t x0, x1, x2;
-		const uint64_t *sp = src + (i * 16) + off;
-		uint64_t *dp = dst + (i * 16) + off;
+		const uint64_t *sp = src + (i * 8) + off;
+		uint64_t *dp = dst + (i * 8) + off;
 
 		__asm__ __volatile__ (
 			"ldr %0, [%3], #8\n"

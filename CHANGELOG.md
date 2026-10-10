@@ -48,6 +48,24 @@ excitation" and "OoO pressure orchestration"):
   ooopress, memcpy-ldp-stp, memcpy-neon, [memcpy-sve, lsupress-sve on
   SVE2 hosts], addrspace, memrate
 
+lsupress mix-template stride fix (found on the 192-core R240K V2 during
+the core-hunt campaign onboarding):
+
+- `mix-2l-alu-1s` / `mix-3l-2alu-1s` indexed both the src and dst half
+  with `i * 16` words per block although a block is 8 words per half
+  (blocks = buf_words/16) — dst stores ran up to half a window (~128MB
+  at the default 256MB migrating window) past the working window:
+  usually silently faulting in pages beyond the window (defeating the
+  MADV_DONTNEED working-set discipline), SIGSEGVing whenever the window
+  sat near the end of the per-worker VA region (~5% of workers per run,
+  core-uniform; the first worker crash terminates the whole run, so a
+  full-machine rotation failed within seconds). Stride is now `i * 8`;
+  `mix-1l-fpu-1s` was already correct
+- verification: per-core pinned single-worker attribution, 3 rounds x
+  191 instances — 0 crashes after the fix (11/8/9 SIGSEGV before,
+  zero core overlap across rounds); `--lsupress 191` mix-2l / mix-3l /
+  all all rc=0 successful (mix templates were rc=2)
+
 ## [0.22.01-sdc.1] — 2026-10-08
 
 LSU instruction-spectrum engine (same version line):
