@@ -671,6 +671,7 @@ STRESS_SRC = \
 	stress-link.c \
 	stress-list.c \
 	stress-llc-affinity.c \
+	stress-llccross.c \
 	stress-loadavg.c \
 	stress-lockbus.c \
 	stress-locka.c \
