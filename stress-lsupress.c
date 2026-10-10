@@ -408,6 +408,97 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_lse_rmw(
 	__asm__ __volatile__ ("" : : "r" (v) : "memory");
 }
 
+/*
+ *  RCpc limited-ordering methods: FEAT_LRCPC adds the LDAPR
+ *  load-acquire (ARMv8.3) to complement the base STLR store-release;
+ *  FEAT_LRCPC2 adds the unscaled-immediate-offset LDAPUR/STLUR forms
+ *  (ARMv8.4).  Both features advertise as AT_HWCAP bits (not HWCAP2),
+ *  so they gate through the plain hwcap_req mechanism like lse-rmw.
+ */
+#ifndef HWCAP_LRCPC
+#define HWCAP_LRCPC		(1 << 15)
+#endif
+#ifndef HWCAP_ILRCPC
+#define HWCAP_ILRCPC		(1 << 26)
+#endif
+
+/*  lrcpc-pair: LDAPR acquire + STLR release to the same line, one
+ *  pair per 64B cacheline, zero ALU between the two (pure acquire/
+ *  release ordering density; HWCAP_LRCPC gated at dispatch) */
+__attribute__((target("arch=armv8.3-a")))
+static NOINLINE OPTIMIZE3 void stress_lsupress_lrcpc_pair(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	size_t i;
+	uint64_t v = seed | 1;
+
+	for (i = 0; i < buf_words; i += 8) {	/* one pair per 64B line */
+		register uint64_t t;
+
+		__asm__ __volatile__ (
+			"ldapr %0, [%1]\n"
+			"stlr  %0, [%1]"
+			: "=&r" (t)
+			: "r" (buf + i)
+			: "memory");
+		v = t;
+	}
+	__asm__ __volatile__ ("" : : "r" (v) : "memory");
+}
+
+/*  ilrcpc-rmw: LDAPUR acquire + add + STLUR release RMW chain —
+ *  eight immediate-offset RMWs per 64B line (every LRCPC2 immediate
+ *  encoding), the chain value threading each word and each line
+ *  (HWCAP_ILRCPC gated at dispatch) */
+__attribute__((target("arch=armv8.4-a")))
+static NOINLINE OPTIMIZE3 void stress_lsupress_ilrcpc_rmw(
+	stress_args_t *args,
+	uint64_t *buf,
+	const size_t buf_words,
+	const uint64_t seed)
+{
+	size_t i;
+	uint64_t v = seed | 1;
+
+	for (i = 0; i + 8 <= buf_words; i += 8) {	/* 8 RMWs per 64B line */
+		register uint64_t t;
+
+		__asm__ __volatile__ (
+			"ldapur %0, [%1, #0]\n"
+			"add    %0, %0, %2\n"
+			"stlur  %0, [%1, #0]\n"
+			"ldapur %0, [%1, #8]\n"
+			"add    %0, %0, %2\n"
+			"stlur  %0, [%1, #8]\n"
+			"ldapur %0, [%1, #16]\n"
+			"add    %0, %0, %2\n"
+			"stlur  %0, [%1, #16]\n"
+			"ldapur %0, [%1, #24]\n"
+			"add    %0, %0, %2\n"
+			"stlur  %0, [%1, #24]\n"
+			"ldapur %0, [%1, #32]\n"
+			"add    %0, %0, %2\n"
+			"stlur  %0, [%1, #32]\n"
+			"ldapur %0, [%1, #40]\n"
+			"add    %0, %0, %2\n"
+			"stlur  %0, [%1, #40]\n"
+			"ldapur %0, [%1, #48]\n"
+			"add    %0, %0, %2\n"
+			"stlur  %0, [%1, #48]\n"
+			"ldapur %0, [%1, #56]\n"
+			"add    %0, %0, %2\n"
+			"stlur  %0, [%1, #56]"
+			: "=&r" (t)
+			: "r" (buf + i), "r" (v)
+			: "memory");
+		v = t;
+	}
+	__asm__ __volatile__ ("" : : "r" (v) : "memory");
+}
+
 #if defined(__ARM_FEATURE_LS64)
 #include <arm_acle.h>
 
@@ -761,6 +852,8 @@ static stress_lsupress_method_info_t lsupress_methods[] = {
 	{ "mix-neon-fma",	stress_lsupress_mix_neon_fma,	0 },
 	{ "excl-pair",		stress_lsupress_excl_pair,	0 },
 	{ "lse-rmw",		stress_lsupress_lse_rmw,	HWCAP_ATOMICS },
+	{ "lrcpc-pair",		stress_lsupress_lrcpc_pair,	HWCAP_LRCPC },
+	{ "ilrcpc-rmw",		stress_lsupress_ilrcpc_rmw,	HWCAP_ILRCPC },
 #if defined(__ARM_FEATURE_LS64)
 	{ "ls64-copy",		stress_lsupress_ls64_copy,	0 },	/* HWCAP2/3 gated in main */
 #endif

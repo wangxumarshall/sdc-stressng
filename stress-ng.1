@@ -6169,8 +6169,11 @@ select the lsupress method: all, load\-int64, load\-int128, load\-fp64,
 load\-neon, load\-sve, load\-sve\-gather, store\-int64, store\-neon,
 store\-sve, store\-zva, copy\-int64, copy\-sve, mix\-2l\-alu\-1s,
 mix\-1l\-fpu\-1s, mix\-3l\-2alu\-1s, mix\-neon\-fma, mix\-sve\-fma,
-excl\-pair, lse\-rmw, ls64\-copy.
+excl\-pair, lse\-rmw, lrcpc\-pair, ilrcpc\-rmw, ls64\-copy.
 SVE methods skip on CPUs without SVE; lse\-rmw requires LSE atomics;
+lrcpc\-pair requires the RCpc LDAPR load\-acquire extension
+(HWCAP_LRCPC); ilrcpc\-rmw requires the unscaled LDAPUR/STLUR forms
+(HWCAP_ILRCPC);
 ls64\-copy is compiled only on ls64\-capable toolchains and skips on
 CPUs without the ls64 extension.
 .TQ
