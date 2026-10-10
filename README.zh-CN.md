@@ -52,17 +52,11 @@ $NG --addrspace 2 --verify -t 60     # 地址空间形状激发
 $NG --llccross 2 --verify -t 60      # 跨内存域一致性乒乓
 ```
 
-健康机器上每条都 `failed: 0` 退出 0；失配报位级诊断（地址、期望/实际、翻转位数、xor 掩码）。硬件缺失的 stressor 诚实跳过并给出原因——绝不假跑。
+### 第 3 步 · 激发（sdc-run）
 
-### 第 3 步 · 激发战役（sdc-run）
-
-`sdc-run.sh` 是编排器：一条命令一个战役、一次运行一个输出目录、拓扑推导贯穿始终。按目标选战役：
+`sdc-run.sh` 是编排器：一条命令、一次运行一个输出目录、拓扑推导贯穿始终。按目标自行选择：
 
 ```bash
-# A · 纯激发——每个周期都给负载，检测全部交给 SDCShield
-NG=$NG ./scripts/sdc-run.sh excite -t 7200 --preheat 10 \
-    --sdcshield "./run-sdcshield.sh"
-
 # B · 触发 + verify 哨兵——工具自身的 --verify 搭车随行
 NG=$NG ./scripts/sdc-run.sh full -t 7200 --preheat 10
 
@@ -78,8 +72,13 @@ NG=$NG ./scripts/sdc-run.sh pair -t 30
 # F · A/B 回归——这个构建改变了激发/检测能力吗？
 NG_A=/tmp/stress-ng-old NG_B=$NG ./scripts/sdc-run.sh abtest -t 7200
 
+# A · 纯激发——每个周期都给负载，检测全部交给 SDCShield
+NG=$NG ./scripts/sdc-run.sh excite -t 7200 --preheat 10 \
+    --sdcshield "./run-sdcshield.sh"
+
 # 完整漏斗顺序执行：full → scan → path
 NG=$NG ./scripts/sdc-run.sh all
+
 ```
 
 结果判读：
