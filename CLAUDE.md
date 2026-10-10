@@ -47,6 +47,7 @@ make clean && make -j$(nproc)   # 本机 gcc 12 即可；make clean 在拉取后
 | memrate 写模式 | `--memrate-write-pattern 0xaa|random|bandwalk|complement` |
 | vm 随机偏移 | `--vm-method rand-offset`（无放回 Fisher-Yates + bitgen 填充/同序校验） |
 | LSU 指令谱压测 | `--lsupress`（20 方法：load int64/128/fp64/neon/sve/gather、store neon/sve/zva、copy、mix 2load+ALU+load+store、fma 模板、excl/lse/ls64 原子；`--lsupress-va-size/--window/--walk/--huge` 控制 100GB NORESERVE VA 游走引擎，4 游走模式含 bitgen TLB 位段；verify=per-address 确定性哈希+位级诊断） |
+| OoO 调度器压测 | `--ooopress`（6 方法：dep-chain 256 深串行 xor/add/ror/sub 链、indep-max 最大 ILP 独立波、alt 链/独立交替 ROB 排空-回填波形、rename-reuse 同目的寄存器连写 vs 16 目的分散写、branch-mix 位形状分支+除法臂防 if-conversion、load-use 256 深依赖装载链×1MB 单环置换；bitgen 操作数池逐 bogo 变色，每 bogo ~256 条可横比，纯激发无 verify oracle） |
 | memcpy 指令变体 | `--memcpy-method ldp-stp/neon/neon-ld2/sve/sve-gather/ls64`（手写内核挂上游方法表，memcpy_check 对拍） |
 | SDC 编排 | `scripts/sdc-run.sh excite\|full\|scan\|path\|pair\|abtest\|all`（拓扑自推导；**excite 2.0 纯激发**=时间片轮岗站点制，每站全机深压单通路 + varyload 常驻；full 含 verify 哨兵 + --preheat 热浸润；scan 逐物理核 + --keep-bg 背景压；pair SMT 争用矩阵；abtest 双构建 A/B） |
 | 位级 verify 诊断 | fma/vecfp/matrix 失配输出：元素下标 + expected/actual + 翻转位数 + xor 掩码 |
@@ -105,7 +106,7 @@ make clean && make -j$(nproc)   # 本机 gcc 12 即可；make clean 在拉取后
 
 ## 当前遗留（backlog，权威来源 = docs/excitation-guide.md gap 路线图）
 
-互联/L3 跨实例定向激发、lrcpc/ilrcpc 通路、SMT×MMU/atomics pair 组合扩展、OoO 调度器压力、真机 bitgen 校准闭环（sdc-flip-collect.sh 待 CP1 数据）、ci-trend.sh 一周稳定性对比（需认证环境）、CP1 真机 A/B 长跑（abtest 已就绪）。
+互联/L3 跨实例定向激发、lrcpc/ilrcpc 通路、SMT×MMU/atomics pair 组合扩展、ooopress 编排接入（excite 站点 + pair 组合）、真机 bitgen 校准闭环（sdc-flip-collect.sh 待 CP1 数据）、ci-trend.sh 一周稳定性对比（需认证环境）、CP1 真机 A/B 长跑（abtest 已就绪）。
 
 ## 规则
 - git 提交中不能出现"Co-Authored-By: Claude Code"行
