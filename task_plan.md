@@ -106,11 +106,11 @@
 ### Phase 12: backlog 并行推进（5 agent，2026-10-10 dispatch）— in_progress
 | Agent | 任务 | 隔离 | 冲突面 |
 |---|---|---|---|
-| QEMU | 重建 /tmp/qemu-out/qemu-aarch64 8.2.0 用户态（download.qemu.org 已验可达），-cpu max 验证 SVE2/lsupress-SVE/memcpy-sve-gather | /tmp | 无（只构建 stress-ng 做验证） |
-| llccross | 互联/L3 跨实例定向激发新 stressor（共享行乒乓+远端写+跨 socket 流，bitgen 形状，拓扑推导） | worktree | 注册链四文件+man（合并时处理） |
-| lrcpc | lsupress 加 lrcpc-pair/ilrcpc-rmw 方法（HWCAP2 检测+armv8.3 target 属性；内核零框架调用铁律） | worktree | stress-lsupress.c+man |
-| pair | sdc-run pair 模式 4→8 组合（vm/addrspace/atomic/lsupress ×同） | worktree | sdc-run.sh+README/CLAUDE.md |
-| ooo | OoO 调度器压力新 stressor（dep-chain/indep-max/alt/rename-reuse/branch-mix） | worktree | 注册链四文件+man |
+| QEMU | ✅ **完成**：/tmp/qemu-out/qemu-aarch64 8.2.0（无需 LD_LIBRARY_PATH，RPATH 内嵌）；-cpu max 暴露 sve2 全家桶+sm3/sm4/sha3/rng；三条 SVE 验证全 passed failed:0（sve2 verify/lsupress load-sve/memcpy sve-gather）。关键备忘：无 SVE 硬件机上 --sve2 stressor 必须 MARCH_AARCH64_SVE2=1 构建才非跳过桩（z 指令 1146→5824）；断点续传+dnf download 提取依赖重建流程见 /tmp/qemu-out/README | /tmp | 无（只构建 stress-ng 做验证） |
+| llccross | ✅ **完成**（worktree 分支 commit c364b68d9，6 文件 +1117 行）：`--llccross` 3 方法（pingpong 共享行乒乓 turn 制+每拍 tag 哨兵 / remote-write 双向整行流 / remote-stream 混合扫描）；pair 进程跨域绑定（NUMA node→L3 实例→单域诚实降级三级推导）；first-touch 放置零 mbind；**bring-up 抓出 2 个真 bug**：arm64 读提升越过自旋交接需 mfence+dmb sy 三处配对、工作行须取 min(L1D,LLC) 一致性粒度（920/950 L3=128B 但传输=64B）；故障注入 4/4 命中；实测 39789 乒乓拍/s + 3477MB/s 远端扫描；worktree 沙箱 Mems_allowed=node0（跨域页面放置待 CP1 验证） | worktree | 注册链四文件+man（合并时处理） |
+| lrcpc | ✅ **完成**（worktree 分支 commit f58e6a0ef，+97/-1）：lrcpc-pair（LDAPR+STLR armv8.3-a）+ ilrcpc-rmw（LDAPUR/STLUR 立即数偏移 RMW 链 armv8.4-a，无需 .inst）；**修正任务假设：lrcpc/ilrcpc 在 AT_HWCAP 不在 HWCAP2**（HWCAP_LRCPC=bit15/ILRCPC=bit26，走现有 hwcap_req 机制+#ifndef fallback）；本机诚实 skip + QEMU 真跑 passed:2 + 强制 SVE2 构建 0 mismatch + objdump 确认 ldapr/stlr/ldapur/stlur | worktree | stress-lsupress.c+man |
+| pair | ✅ **完成**（worktree 分支 commits 1a2ee1e2a+3e8cbacbf）：8 组合（vm/addrspace/atomic/lsupress ×同）+ **抓出历史真 bug：pair 兄弟线程放置从未生效**（stress-ng --taskset 进程级+命令行最后生效 → 双 worker 同落一个 CPU，"SMT 争用矩阵"实际测的是分时单超线程，所有组合恒 ~0.5 的历史数据全部无效！）修复=每侧独立 stress-ng 进程各自 taskset；lsupress 组合用 mix-2l-alu-1s 固定方法（"all"随机抽签在无 SVE 机会性跳过）；E2E 24 行矩阵 48/48 successful；CP1 全扫时长提示（~12.7h，建议 -c 抽样） | worktree | sdc-run.sh+README/CLAUDE.md |
+| ooo | ✅ **完成**（worktree 分支 commits 7a4dcaaca+1efbaf372）：`--ooopress` 6 方法（dep-chain 256 条 RAW 链/indep-max/alt 波形/rename-reuse/branch-mix（bitgen 方向+udiv 臂防 if-conversion——objdump 抓出初版被 GCC 静默 csel 化）/load-use 仿置换队头阻塞）；42 倍 bogo 形态差实测；纯可移植 C 零 target 属性；强制 SVE2 构建 rc=0；man+excitation-guide 矩阵记分+CHANGELOG 已含 | worktree | 注册链四文件+man |
 
 同时后台：CI 复验 run（c973cad25，17:07 cron 收尾）。外部 spec 编辑已 stash（不丢）。
 
