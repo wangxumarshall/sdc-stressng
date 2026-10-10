@@ -86,7 +86,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_load_int64(
 		sum ^= buf[i] ^ buf[i + 1] ^ buf[i + 2] ^ buf[i + 3] ^
 		       buf[i + 4] ^ buf[i + 5] ^ buf[i + 6] ^ buf[i + 7];
 	}
-	stress_bogo_inc(args);
 	__asm__ __volatile__ ("" : : "r" (sum) : "memory");	/* consume */
 }
 
@@ -104,7 +103,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_store_int64(
 	for (i = 0; i < buf_words; i++)
 		buf[i] = lsupress_value(seed,
 			(uint64_t)(uintptr_t)(buf + i));
-	stress_bogo_inc(args);
 }
 
 /*  copy-int64: ldr+str dual */
@@ -121,7 +119,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_copy_int64(
 	(void)seed;
 	for (i = 0; i < buf_words / 2; i++)
 		dst[i] = src[i];
-	stress_bogo_inc(args);
 }
 
 /*
@@ -163,7 +160,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_mix_2l_alu_1s(
 			: "memory");
 		acc ^= x0;
 	}
-	stress_bogo_inc(args);
 	__asm__ __volatile__ ("" : : "r" (acc) : "memory");	/* consume */
 }
 
@@ -192,7 +188,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_mix_1l_fpu_1s(
 		acc += v;			/* fadd */
 		b[i] = acc;			/* str d */
 	}
-	stress_bogo_inc(args);
 	__asm__ __volatile__ ("" : : "r" (acc) : "memory");
 }
 
@@ -230,7 +225,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_mix_3l_2alu_1s(
 			: "memory");
 		acc ^= x0;
 	}
-	stress_bogo_inc(args);
 	__asm__ __volatile__ ("" : : "r" (acc) : "memory");
 }
 
@@ -251,7 +245,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_load_int128(
 
 	for (i = 0; i + 1 < buf_words; i += 2)
 		sum ^= buf[i] ^ buf[i + 1];
-	stress_bogo_inc(args);
 	__asm__ __volatile__ ("" : : "r" (sum) : "memory");
 }
 
@@ -269,7 +262,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_load_fp64(
 
 	for (i = 0; i < n; i++)
 		acc += a[i];
-	stress_bogo_inc(args);
 	__asm__ __volatile__ ("" : : "r" (acc) : "memory");
 }
 
@@ -292,7 +284,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_load_neon(
 		acc0 = veorq_u8(acc0, v.val[0]);
 		acc1 = veorq_u8(acc1, v.val[1]);
 	}
-	stress_bogo_inc(args);
 	__asm__ __volatile__ ("" : : "r" (vgetq_lane_u64((uint64x2_t)acc0, 0)) : "memory");
 }
 
@@ -318,7 +309,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_store_neon(
 
 		vst1q_u64((uint64_t *)(p + i), v);
 	}
-	stress_bogo_inc(args);
 }
 
 /*  store-zva: DC ZVA line zeroing (64B stride, Kunpeng line size) */
@@ -340,7 +330,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_store_zva(
 			: "r" (p + off)
 			: "memory");
 	}
-	stress_bogo_inc(args);
 }
 
 /*  mix-neon-fma: batch q loads -> vfma -> batch q stores */
@@ -365,7 +354,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_mix_neon_fma(
 		acc = vfmaq_f64(acc, v1, c);
 		vst1q_f64((double *)(b + i), acc);
 	}
-	stress_bogo_inc(args);
 }
 
 /* ---- atomic method family ------------------------------------------ */
@@ -393,7 +381,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_excl_pair(
 			: "memory");
 		v = t;
 	}
-	stress_bogo_inc(args);
 	__asm__ __volatile__ ("" : : "r" (v) : "memory");
 }
 
@@ -418,7 +405,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_lse_rmw(
 			: "memory");
 		v = t;
 	}
-	stress_bogo_inc(args);
 	__asm__ __volatile__ ("" : : "r" (v) : "memory");
 }
 
@@ -458,7 +444,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_ls64_copy(
 
 		__arm_st64b(dst, v);
 	}
-	stress_bogo_inc(args);
 }
 #endif
 
@@ -484,7 +469,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_load_sve(
 
 		acc = sveor_u64_x(pg, acc, v);
 	}
-	stress_bogo_inc(args);
 	sink = svlastb_u64(pg, acc);
 	__asm__ __volatile__ ("" : : "r" (sink) : "memory");
 }
@@ -508,7 +492,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_load_sve_gather(
 
 		acc = sveor_u64_x(pg, acc, v);
 	}
-	stress_bogo_inc(args);
 	sink = svlastb_u64(pg, acc);
 	__asm__ __volatile__ ("" : : "r" (sink) : "memory");
 }
@@ -539,7 +522,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_store_sve(
 		v = svld1_u64(pg, tmp);
 		svst1_u64(pg, p + k, v);
 	}
-	stress_bogo_inc(args);
 }
 
 /*  copy-sve: full-VL ld1d + st1d */
@@ -562,7 +544,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_copy_sve(
 
 		svst1_u64(pg, dst + k, v);
 	}
-	stress_bogo_inc(args);
 }
 
 /*  mix-sve-fma: batch ld1d -> fmla -> st1d, full VL */
@@ -590,7 +571,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_mix_sve_fma(
 		acc = svmla_f64_x(pg, acc, v1, c);
 		svst1_f64(pg, dst + k, acc);
 	}
-	stress_bogo_inc(args);
 }
 #endif
 #define LSUPRESS_DEFAULT_VA_SIZE	(100ULL << 30)	/* 100GB NORESERVE map/worker */
@@ -899,6 +879,7 @@ static int stress_lsupress(stress_args_t *args)
 		buf_words = engine.win_size / sizeof(uint64_t);
 		do {
 			func(args, buf, buf_words, seed);
+			stress_bogo_inc(args);
 			if (verify && (func == stress_lsupress_store_int64)) {
 				/* store-int64 promises value == f(seed, addr)
 				 * at every address; other methods carry no
@@ -954,6 +935,7 @@ static int stress_lsupress(stress_args_t *args)
 		"lsupress-buffer");
 
 	func(args, fallback, LSUPRESS_BUF_WORDS, seed);
+	stress_bogo_inc(args);
 
 	(void)munmap(fallback, LSUPRESS_BUF_WORDS * sizeof(uint64_t));
 	return EXIT_SUCCESS;
