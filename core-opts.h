@@ -1180,6 +1180,10 @@ typedef enum {
 	OPT_oom_pipe,
 	OPT_oom_pipe_ops,
 
+	OPT_ooopress,
+	OPT_ooopress_method,
+	OPT_ooopress_ops,
+
 	OPT_opcode,
 	OPT_opcode_method,
 	OPT_opcode_ops,

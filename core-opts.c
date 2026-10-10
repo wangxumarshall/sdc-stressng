@@ -1082,6 +1082,10 @@ const struct option stress_long_options[] = {
 	{ "oom-pipe",		1,	NULL,	OPT_oom_pipe },
 	{ "oom-pipe-ops",	1,	NULL,	OPT_oom_pipe_ops },
 
+	{ "ooopress",		1,	NULL,	OPT_ooopress },
+	{ "ooopress-method",	1,	NULL,	OPT_ooopress_method },
+	{ "ooopress-ops",	1,	NULL,	OPT_ooopress_ops },
+
 	{ "opcode",		1,	NULL,	OPT_opcode },
 	{ "opcode-method",	1,	NULL,	OPT_opcode_method },
 	{ "opcode-ops",		1,	NULL,	OPT_opcode_ops },

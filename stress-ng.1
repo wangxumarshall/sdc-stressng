@@ -7722,6 +7722,65 @@ T}
 stop after N attempts to execute illegal code.
 .RE
 .TP
+.B Out\-of\-order scheduler (ooopress) stressor
+.RS 5
+.TQ
+.B \-\-ooopress N
+start N workers driving the out\-of\-order execution engine (register
+rename, issue scheduler, reorder buffer) into boundary states.
+Every method runs about 256 bitgen\-shaped integer operations per
+bogo\-op, so bogo\-op rates are comparable across methods and the
+dep\-chain vs indep\-max ratio measures the achieved instruction
+level parallelism of the core. Operands come from the SDC\-directed
+bit pattern generator (bandwalk bit\-band sweeps, edge dictionary
+values, jittered uniform), so dependency chains, branch directions
+and rename churn all run under shaped data.
+.TQ
+.B \-\-ooopress\-method [ all | dep\-chain | indep\-max | alt | rename\-reuse | branch\-mix | load\-use ]
+select the ooopress method:
+.TS
+lB2 lB
+l lx.
+Method	Description
+dep\-chain	T{
+serial 64\-step dependency chains (xor/add/rotate/sub, 4 x 64 per bogo\-op):
+the chain head cannot retire until the tail executes, compressing the
+in\-flight window and starving the issue ports.
+T}
+indep\-max	T{
+16 independent waves of 8 mutually independent operations: no cross
+dependencies, the reorder buffer fills to capacity and retirement runs
+at allocation rate.
+T}
+alt	T{
+64 dependent chain steps alternating with 64 independent operations:
+the reorder buffer drains behind each chain head and refills on each
+independent block, a block\-granularity scheduler pressure waveform.
+T}
+rename\-reuse	T{
+bursts of 32 consecutive writes to one architectural destination (rename
+map slot remapped every operation, physical register churn at maximum
+rate) interleaved with 16\-wide bursts to 16 distinct destinations
+(rename map occupancy with 16 simultaneously live mappings).
+T}
+branch\-mix	T{
+64 data branches, each condition testing the top bit of the chain value
+so the branch resolves late and every younger instruction is speculative;
+branch directions are shaped by the bitgen pool (bandwalk runs produce
+predictable stretches, edge dictionary values produce mispredict bursts).
+T}
+load\-use	T{
+256 dependent loads, each address being the previous load's data
+(head\-of\-line blocking that fills the reorder buffer behind one
+unresolved memory access) through a bitgen\-parameterised single\-cycle
+permutation of a 1MB array.
+T}
+.TE
+.TQ
+.B \-\-ooopress\-ops N
+stop after N ooopress bogo operations.
+.RE
+.TP
 .B Opening file (open) stressor
 .RS 5
 .TQ

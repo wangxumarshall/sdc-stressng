@@ -241,6 +241,7 @@
 	MACRO(numa)		\
 	MACRO(numacopy)		\
 	MACRO(oom_pipe)		\
+	MACRO(ooopress)		\
 	MACRO(opcode)		\
 	MACRO(operand_var)	\
 	MACRO(open)		\

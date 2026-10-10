@@ -4,6 +4,34 @@ Notable changes to the **sdc-stressng** fork. Upstream changes arrive via
 periodic release merges (see [docs/upstream-sync.md](docs/upstream-sync.md));
 upstream-only items are not itemized here — consult the upstream git history.
 
+## [Unreleased]
+
+New out-of-order scheduler pressure stressor (excitation-guide gap "OoO
+scheduler pressure with shaped dependencies"):
+
+- `--ooopress` — drive the rename unit, issue scheduler and reorder
+  buffer into boundary states; every method runs ~256 bitgen-shaped
+  integer operations per bogo-op so rates are comparable across methods
+  (dev-machine spread: rename-reuse 10.7M vs load-use 0.25M bogo-ops/s
+  on one pinned core, 42x — the shapes are measurably different workloads)
+- six methods: dep-chain (4 x 64-step serial xor/add/rotate/sub chains,
+  in-flight window compressed behind the chain head), indep-max (16
+  independent waves, reorder buffer filled to capacity), alt (chain /
+  independent block alternation, a drain-refill scheduler pressure
+  waveform), rename-reuse (32-write same-destination bursts vs 16-wide
+  distinct-destination bursts), branch-mix (64 late-resolving data
+  branches with bitgen-shaped directions; the divider arm both shapes
+  path-latency asymmetry and blocks the compiler's if-conversion so a
+  real conditional branch is emitted instead of csel), load-use (256
+  dependent loads through a bitgen-parameterised single-cycle
+  permutation of a 1MB array — head-of-line blocking)
+- operands come from a per-worker 256-word bitgen pool (bandwalk / edge
+  dictionary / jittered uniform) re-coloured every bogo-op by a fresh
+  generator value, so the shape mix keeps evolving without a serial
+  generator inside the pressure kernels
+- pure excitation, no verify oracle (detection delegated to SDCShield
+  running alongside)
+
 ## [0.22.01-sdc.1] — 2026-10-08
 
 LSU instruction-spectrum engine (same version line):
