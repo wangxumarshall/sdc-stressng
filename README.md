@@ -129,7 +129,7 @@ on a Kunpeng 920 (128 CPUs, no SMT) and a Kunpeng 950 (382 CPUs, SMT2):
 | `full` | Stage 1 *trigger*: all-cores load (cpu + fma + operand-var + addrspace, verify sentinels on) + varyload di/dt steps + optional `--preheat` and `--sdcshield` |
 | `scan` | Stage 2 *localise*: sweep every physical core (SMT pairs), per-core yaml metrics, suspects list; `--keep-bg N` keeps machine-wide concurrency alive while sweeping |
 | `path` | Stage 3 *attribute*: datapath golden cross-checks (sve2 / ls64 / crc32) — a mismatch is direct SDC evidence for that datapath |
-| `pair` | SMT contention matrix: 4 workload combinations per physical core; bogo-ops ratios map the sharing topology (≈0.5 shared, ≈1.0 private) |
+| `pair` | SMT contention matrix: 8 workload combinations per physical core (fma×fma, fma×cpu, armcrypto×fma, cacheline×cacheline, vm×vm, addrspace×addrspace, atomic×atomic, lsupress×lsupress — execute units, caches, MMU/TLB, atomics/LSU); bogo-ops ratios map the sharing topology (≈0.5 shared, ≈1.0 private). Runtime = cores × 8 × secs-per-pair; use `-c` to sample cores on large machines |
 | `abtest` | A/B regression between two stress-ng builds (`NG_A=`/`NG_B=`), cooldown-separated, with side-by-side failure-count interpretation |
 | `all` | full → scan → path, sequentially |
 
