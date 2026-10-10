@@ -52,7 +52,6 @@ static inline uint64_t ALWAYS_INLINE lsupress_value(
 }
 
 typedef void (*stress_lsupress_func_t)(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed);
@@ -73,7 +72,6 @@ static const char *stress_lsupress_method(const size_t i);
  *  consumed into a checksum (dead-store-proof)
  */
 static NOINLINE OPTIMIZE3 void stress_lsupress_load_int64(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -93,7 +91,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_load_int64(
  *  seed and the target address — uniform avalanche, and the verify
  *  oracle can recompute it at any address at any time) */
 static NOINLINE OPTIMIZE3 void stress_lsupress_store_int64(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -107,7 +104,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_store_int64(
 
 /*  copy-int64: ldr+str dual */
 static NOINLINE OPTIMIZE3 void stress_lsupress_copy_int64(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -131,7 +127,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_copy_int64(
  *  off rotates 1..7 for misaligned window offsets (int paths only).
  */
 static NOINLINE OPTIMIZE3 void stress_lsupress_mix_2l_alu_1s(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -169,7 +164,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_mix_2l_alu_1s(
  *  window-aligned: a misaligned double access is C-level UB.
  */
 static NOINLINE OPTIMIZE3 void stress_lsupress_mix_1l_fpu_1s(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -196,7 +190,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_mix_1l_fpu_1s(
  *  before the first consumer (maximises the LSU queue occupancy).
  */
 static NOINLINE OPTIMIZE3 void stress_lsupress_mix_3l_2alu_1s(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -235,7 +228,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_mix_3l_2alu_1s(
 
 /*  load-int128: ldp pair consumption (compiler pairs the loads) */
 static NOINLINE OPTIMIZE3 void stress_lsupress_load_int128(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -250,7 +242,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_load_int128(
 
 /*  load-fp64: ldr d checksum chain */
 static NOINLINE OPTIMIZE3 void stress_lsupress_load_fp64(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -267,7 +258,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_load_fp64(
 
 /*  load-neon: interleaved vld2q loads, xor-reduced */
 static NOINLINE OPTIMIZE3 void stress_lsupress_load_neon(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -289,7 +279,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_load_neon(
 
 /*  store-neon: bitgen-shaped q-register stores */
 static NOINLINE OPTIMIZE3 void stress_lsupress_store_neon(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -313,7 +302,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_store_neon(
 
 /*  store-zva: DC ZVA line zeroing (64B stride, Kunpeng line size) */
 static NOINLINE OPTIMIZE3 void stress_lsupress_store_zva(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -334,7 +322,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_store_zva(
 
 /*  mix-neon-fma: batch q loads -> vfma -> batch q stores */
 static NOINLINE OPTIMIZE3 void stress_lsupress_mix_neon_fma(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -360,7 +347,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_mix_neon_fma(
 
 /*  excl-pair: ldxr/stxr exclusive loop, one per cacheline */
 static NOINLINE OPTIMIZE3 void stress_lsupress_excl_pair(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -387,7 +373,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_excl_pair(
 /*  lse-rmw: LSE ldadd read-modify-write (HWCAP_ATOMICS gated at dispatch) */
 __attribute__((target("arch=armv8.1-a")))
 static NOINLINE OPTIMIZE3 void stress_lsupress_lse_rmw(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -427,7 +412,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_lse_rmw(
  *  release ordering density; HWCAP_LRCPC gated at dispatch) */
 __attribute__((target("arch=armv8.3-a")))
 static NOINLINE OPTIMIZE3 void stress_lsupress_lrcpc_pair(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -455,7 +439,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_lrcpc_pair(
  *  (HWCAP_ILRCPC gated at dispatch) */
 __attribute__((target("arch=armv8.4-a")))
 static NOINLINE OPTIMIZE3 void stress_lsupress_ilrcpc_rmw(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -519,7 +502,6 @@ static bool lsupress_ls64_ok(void)
 
 /*  ls64-copy: 64-byte atomic ld64b/st64b blocks */
 static NOINLINE OPTIMIZE3 void stress_lsupress_ls64_copy(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -544,7 +526,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_ls64_copy(
 /*  load-sve: full-VL ld1d, xor-reduced (HWCAP_SVE gated at dispatch) */
 __attribute__((target("arch=armv8.2-a+sve")))
 static NOINLINE OPTIMIZE3 void stress_lsupress_load_sve(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -567,7 +548,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_load_sve(
 /*  load-sve-gather: 64B-strided gather, xor-reduced */
 __attribute__((target("arch=armv8.2-a+sve")))
 static NOINLINE OPTIMIZE3 void stress_lsupress_load_sve_gather(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -590,7 +570,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_load_sve_gather(
 /*  store-sve: full-VL st1d of bitgen shapes */
 __attribute__((target("arch=armv8.2-a+sve")))
 static NOINLINE OPTIMIZE3 void stress_lsupress_store_sve(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -618,7 +597,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_store_sve(
 /*  copy-sve: full-VL ld1d + st1d */
 __attribute__((target("arch=armv8.2-a+sve")))
 static NOINLINE OPTIMIZE3 void stress_lsupress_copy_sve(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -640,7 +618,6 @@ static NOINLINE OPTIMIZE3 void stress_lsupress_copy_sve(
 /*  mix-sve-fma: batch ld1d -> fmla -> st1d, full VL */
 __attribute__((target("arch=armv8.2-a+sve")))
 static NOINLINE OPTIMIZE3 void stress_lsupress_mix_sve_fma(
-	stress_args_t *args,
 	uint64_t *buf,
 	const size_t buf_words,
 	const uint64_t seed)
@@ -971,7 +948,7 @@ static int stress_lsupress(stress_args_t *args)
 		buf = (uint64_t *)engine.win;
 		buf_words = engine.win_size / sizeof(uint64_t);
 		do {
-			func(args, buf, buf_words, seed);
+			func(buf, buf_words, seed);
 			stress_bogo_inc(args);
 			if (verify && (func == stress_lsupress_store_int64)) {
 				/* store-int64 promises value == f(seed, addr)
@@ -1027,7 +1004,7 @@ static int stress_lsupress(stress_args_t *args)
 	stress_memory_anon_name_set(fallback, LSUPRESS_BUF_WORDS * sizeof(uint64_t),
 		"lsupress-buffer");
 
-	func(args, fallback, LSUPRESS_BUF_WORDS, seed);
+	func(fallback, LSUPRESS_BUF_WORDS, seed);
 	stress_bogo_inc(args);
 
 	(void)munmap(fallback, LSUPRESS_BUF_WORDS * sizeof(uint64_t));
