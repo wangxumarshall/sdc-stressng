@@ -2,6 +2,32 @@
 
 # Progress Log
 
+## Session 2026-10-10~12: runbook + 三轮 excite 联合战役 + lsupress SIGSEGV 根因闭环
+
+- **runbook.zh-CN.md 交付**（brainstorming 流程，2 决策点：中文内部运维手册 / 调查漏斗主线）：
+  全部命令按纪律 7 实跑核验（冒烟三条、sdc-run 六模式短跑、flip-collect、report、取证四件套），
+  实跑抓出 5 处初稿错误并修正（目录名 sdc_ 双前缀、excite -t 含 preheat、scan suspects.txt
+  条件生成、flip-collect 干净输出、冒烟实测 3 分钟）；README.zh-CN.md 文档表加链接
+  （提交 26c5cc97a + 站点清单同步 9cf65474a）
+- **三轮 excite 2h 联合战役**（campaign-20261010 / 20261011 / 20261011b，参数一致可比）：
+  SDCShield R1 546/0、R2 545/0、R3 514/0 —— ~6.6h 全机激发零 SDC 证据，达 runbook §6.3
+  的 ≥3 轮标准（跨 10-10/10-11 两日）；R3 = 11 站新轮换（+llccross +ooopress）全绿，
+  lsupress 修复后首次跑满 10 分钟；varyload 背景 3×1h50m 零失败；rc=124=timeout 截停
+  检测器属预期
+- **lsupress SIGSEGV 根因闭环**（systematic-debugging 四阶段全走）：
+  根因 = mix-2l/3l 模板 `i*16` 块 stride × dst 锚缓冲中点 → store 越窗 ~0.5×window，
+  窗口迁至 map 末端时跨映射边界崩（时点随机=窗口位置彩票）。证据链：方法二分锁定 mix 系 →
+  单 worker 1.7s 复现（纯逻辑 bug）→ 确定性测试构造（--lsupress-window == --lsupress-va-size
+  时 0 秒必崩）→ 22 内核全量边界审计（其余全部安全，CP1 的 SVE/lrcpc/ls64 路径无恙）。
+  修复收敛：并行会话先行提交 233bfb563（stride 16→8），本会话独立诊断出等价方案
+  （blocks /16→/32）并以确定性测试 + 96-worker 复现配置 + gcc 12/7.3 双门禁独立验证
+  远端修复后，丢弃本地重复修复采用远端版。教训：replace_all 匹配串带注释文本时，
+  无注释的同构行会漏网——第一轮修复只改了 mix-2l 被确定性测试当场抓住
+- **SDCShield 钩子实操要点**：入口 `scripts/run/sdc_detect.sh` 二进制发现是 CWD 相对，
+  必须用 `env SDC_BIN=<abs> bash ...` 形式传给 --sdcshield；`-T forever` 下 -t 不约束总时长，
+  由 sdc-run 的 timeout dur+120 兜底（干净 TERM，exit: interrupted）
+- 用户规则入 memory：SDC 检测/激发禁止做成开机自启动 service，只按需进程运行
+
 ## Session 2026-10-09（续）: Phase 10 闭环 — Release 30 个自包含包 assets 上线
 
 三次发布迭代后全链打通：
@@ -420,3 +446,11 @@ D14-3 策略首次实战，全流程按 docs/upstream-sync.md 执行：
 ### 后续（用户决定是否推进）
 - 按 P1→P9 顺序逐 patch 实现（每 patch 走 plan → code → verify → commit → push 流程）
 - 目标机（CP1, Kunpeng 950）上的命令需要真机执行；本机仅验证"命令可运行+诚实跳过"
+
+### 2026-10-10 插入任务：multi-os-verify 20.03 Build 失败修复 — complete
+- 根因：f58e6a0ef (lsupress lrcpc) 的 `target("arch=armv8.4-a")` 超出 gcc 7.3 target 属性词汇表（止步 armv8.3-a），五个 20.03 镜像 Build 全灭
+- 本地精确复现：openEuler 20.03-LTS-SP4 官方 RPM（gcc/cpp/libgcc 7.3.0）解包至 /tmp/gcc73-root，`-B` 前缀方式全量构建，HEAD 报与 CI 完全一致的 445 行错误（容器镜像本机缺失+docker.io 被墙，此法为 CLAUDE.md "gcc 7.3 本机容器验证"的等效替代，工具链保留复用）
+- 修复：lrcpc/ilrcpc 内核+方法表项整体 `#if __GNUC__ >= 10` 守卫（与同文件 SVE 内核守卫同构），man page 补工具链门控说明（对齐 ls64 先例）
+- 验证矩阵：gcc 7.3 全量构建绿（含 ooopress/llccross 首次 7.3 编译）+ smoke rc=0 + 二进制无 lrcpc（诚实跳过）；gcc 12 构建绿 + 两方法存在 + 运行时 HWCAP 跳过 rc=0
+- 提交 6a647b141 推送 main，workflow_dispatch 验证 run 38060141867 全 15 镜像绿（19 success + 1 skipped，29 分钟）——修复端到端确认
+- 教训沉淀：worktree agent 开发时只做了本机 gcc 12 验证，漏了验证纪律第 4 步（gcc 7.3）——并行 agent 的 patch 合并前需要 gcc 7.3 门禁
