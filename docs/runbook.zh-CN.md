@@ -120,9 +120,10 @@ NG=$NG ./scripts/sdc-run.sh excite -t 7200 --preheat 10 \
 ```
 
 - 站点轮换制：每站独占全机深压一个通路，默认每 10 分钟换站
-  （`EXCITE_SLICE` 环境变量可调，单位分钟）。站点表：
-  cpu → fma → armcrypto → lsupress → operand-var → memcpy-ldp-stp → memcpy-neon
-  → addrspace → memrate；SVE2 机器追加 memcpy-sve、lsupress-sve（CP1 命中）。
+  （`EXCITE_SLICE` 环境变量可调，单位分钟）。站点表（11 基础站）：
+  cpu → fma → armcrypto → lsupress → llccross（跨域一致性）→ operand-var
+  → ooopress（OoO 调度器）→ memcpy-ldp-stp → memcpy-neon → addrspace → memrate；
+  SVE2 机器追加 memcpy-sve、lsupress-sve（CP1 命中）。
 - **`-t` 预算包含 preheat 阶段**：站点轮换在 preheat 完成后的剩余时间内进行
   （`--preheat 10 -t 7200` → 站点实际 6600s；full 模式无此问题，其 `-t` 不含 preheat）。
 - varyload di/dt + 中断/温度观测全程常驻背景（`bg-varyload.log`）。
