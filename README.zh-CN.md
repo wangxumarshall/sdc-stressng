@@ -215,6 +215,7 @@ make clean && make -j$(nproc)
 | [docs/architecture.md](docs/architecture.md) | 五层架构、各层职责、设计决策 |
 | [docs/excitation-guide.md](docs/excitation-guide.md) | 激发覆盖率矩阵（杠杆 × 通路 × 数据形状）、方法论、gap 路线图 |
 | [docs/sdcshield-integration.md](docs/sdcshield-integration.md) | 联合战役手册：拓扑、分阶段脚本、报告关联 |
+| [docs/runbook.zh-CN.md](docs/runbook.zh-CN.md) | 中文运维手册：调查漏斗（触发→定位→归因→处置）逐步命令与判读 |
 | [docs/upstream-sync.md](docs/upstream-sync.md) | 上游合并策略与冲突收敛 |
 | [CLAUDE.md](CLAUDE.md) | 内部开发指南（中文）：验证纪律、15 轮实战沉淀的代码规则 |
 | `stress-ng.1` | man 页（上游 + fork 选项） |
