@@ -464,7 +464,7 @@ run_scan()
 	scan_args+=(--cpus "${CPU_LIST:-$online_list}")
 	scan_args+=(--secs "$per_core")
 	scan_args+=(--out "$out")
-	[ -n "$SDCSHIELD_ARG" ] && scan_args+=($SDCSHIELD_ARG)
+	[ -n "$SDCSHIELD_ARG" ] && scan_args+=(--sdcshield "$SDCSHIELD_ARG")
 
 	#  Optional background load on the non-scanned cores: single-core
 	#  isolation rarely triggers SDC, so keep the machine-wide
