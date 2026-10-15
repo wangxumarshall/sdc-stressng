@@ -179,7 +179,7 @@ for rep in $(printf '%s\n' "${!rep_of_pair[@]}" | sort -n); do
 		if grep -qE "FAIL|fail" "$shield_log"; then
 			fails=$((fails + 1))
 			echo "SUSPECT: core $pair sdcshield failure:" | tee -a "$OUT/suspects.txt"
-			grep -E "FAIL|fail" "$shield_log" | head -3 | tee -a "$SOUT/suspects.txt" 2>/dev/null || true
+			grep -E "FAIL|fail" "$shield_log" | head -3 | tee -a "$OUT/suspects.txt"
 		fi
 	fi
 done
