@@ -172,10 +172,13 @@ for rep in $(printf '%s\n' "${!rep_of_pair[@]}" | sort -n); do
 		}
 	fi
 
-	#  Optional SDCShield cross-check on the same core pair
+	#  Optional SDCShield cross-check on the same core pair.
+	#  SHIELD_T (ms, default 60) sets the per-core shield dwell; 60ms
+	#  only proves the binary launches on that core - a real golden
+	#  cross-check under load needs e.g. SHIELD_T=300000.
 	if [ -n "${SDCSHIELD:-}" ]; then
 		shield_log="$OUT/core_${pair//,/-}_shield.log"
-		taskset -c "$pair" $SDCSHIELD -t 60 -Y > "$shield_log" 2>&1
+		taskset -c "$pair" $SDCSHIELD -t "${SHIELD_T:-60}" -Y > "$shield_log" 2>&1
 		if grep -qE "FAIL|fail" "$shield_log"; then
 			fails=$((fails + 1))
 			echo "SUSPECT: core $pair sdcshield failure:" | tee -a "$OUT/suspects.txt"
